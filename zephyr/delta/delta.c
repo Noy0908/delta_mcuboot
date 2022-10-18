@@ -153,13 +153,16 @@ static int delta_init_flash_mem(struct flash_mem *flash)
 	flash->to_current = SECONDARY_OFFSET;
 	flash->to_end = flash->to_current + SECONDARY_SIZE;
 
-	flash->patch_current = STORAGE_OFFSET + HEADER_SIZE;
-	flash->patch_end = flash->patch_current + STORAGE_SIZE;
+	// flash->to_current = PRIMARY_OFFSET;
+	// flash->to_end = flash->to_current + PRIMARY_SIZE;
+
+	flash->patch_current = PATCH_OFFSET + HEADER_SIZE;
+	flash->patch_end = flash->patch_current + PATCH_SIZE;
 
 	flash->write_buf = 0;
 
 	printf("\nfrom_current=%0X\t size=%0X\t to_current=%0X\t size=%0X\t patch_current=%0X\t size=%0X\n",
-		flash->from_current,PRIMARY_SIZE,flash->to_current,SECONDARY_SIZE,flash->patch_current,STORAGE_SIZE);
+		flash->from_current,PRIMARY_SIZE,flash->to_current,SECONDARY_SIZE,flash->patch_current,PATCH_SIZE);
 
 	return DELTA_OK;
 }
@@ -231,10 +234,10 @@ int delta_read_patch_header(struct flash_mem *flash, uint32_t *size)
 	reset_msg = 0x0U; // reset "NEWP"
 
 	/* For tests purposes use page (in primary_flash = 4 kB) */
-	flash_get_page_info_by_offs(flash->device, STORAGE_OFFSET,&page_info);
-	printf("start_offset=%0X\t storage_size=%d\t size=%d\t index=%d\n",page_info.start_offset, STORAGE_SIZE, page_info.size, page_info.index);
+	flash_get_page_info_by_offs(flash->device, PATCH_OFFSET,&page_info);
+	printf("start_offset=%0X\t storage_size=%d\t size=%d\t index=%d\n",page_info.start_offset, PATCH_SIZE, page_info.size, page_info.index);
 
-	if (flash_read(flash->device, STORAGE_OFFSET, patch_header, sizeof(patch_header))) {
+	if (flash_read(flash->device, PATCH_OFFSET, patch_header, sizeof(patch_header))) {
 		return -DELTA_PATCH_HEADER_ERROR;
 	}
 	printk("read_data[0]=%0X\t read_data[1]=%0X\r\n", patch_header[0], patch_header[1]);
@@ -246,7 +249,7 @@ int delta_read_patch_header(struct flash_mem *flash, uint32_t *size)
 
 	*size = patch_header[1];
 	/** just for test */
-	if (flash_write(flash->device, STORAGE_OFFSET, &reset_msg, sizeof(reset_msg))) {
+	if (flash_write(flash->device, PATCH_OFFSET, &reset_msg, sizeof(reset_msg))) {
 		return -DELTA_PATCH_HEADER_ERROR;
 	}
 
