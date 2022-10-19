@@ -14,7 +14,7 @@
 #include <zephyr/drivers/flash.h>
 #include <zephyr/storage/flash_map.h>
 #include <zephyr/dfu/mcuboot.h>
-#include <power/reboot.h>
+#include <sys/reboot.h>
 #include "../detools/detools.h"
 
 /* IMAGE OFFSETS AND SIZES */
@@ -22,10 +22,8 @@
 #define PRIMARY_SIZE 		FLASH_AREA_SIZE(image_0)
 #define SECONDARY_OFFSET 	FLASH_AREA_OFFSET(image_1)
 #define SECONDARY_SIZE 		FLASH_AREA_SIZE(image_1)
-//#define STORAGE_OFFSET 	FLASH_AREA_OFFSET(storage)
-//#define STORAGE_SIZE 		FLASH_AREA_SIZE(storage)
-#define PATCH_OFFSET		FLASH_AREA_OFFSET(patch_storage)
-#define PATCH_SIZE 			FLASH_AREA_SIZE(patch_storage)
+#define STORAGE_OFFSET 		FLASH_AREA_OFFSET(storage)
+#define STORAGE_SIZE 		FLASH_AREA_SIZE(storage)
 
 /* PATCH HEADER SIZE */
 #define HEADER_SIZE 0x8
@@ -60,6 +58,7 @@ struct flash_mem {
 	off_t to_current;
 	off_t to_end;
 	size_t write_buf;
+	bool flush_write;
 };
 
 /* FUNCTION DECLARATIONS */

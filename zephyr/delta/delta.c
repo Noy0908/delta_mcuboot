@@ -3,9 +3,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-
 #include "delta.h"
-
 /*
  *  IMAGE/FLASH MANAGEMENT
  */
@@ -32,36 +30,82 @@ static int delta_flash_write(void *arg_p,
 					size_t size)
 {
 	struct flash_mem *flash;
+	static uint8_t to_flash_buf[PAGE_SIZE*2];
 
-	flash = (struct flash_mem *)arg_p;
-	flash->write_buf += size;
+	flash = (struct flash_mem *)arg_p;	
 
-	if (flash->write_buf >= PAGE_SIZE) {
-		if (erase_page(flash, flash->to_current + (off_t) size)) {
-			return -DELTA_CLEARING_ERROR;
-		}
-		flash->write_buf = 0;
-	}
+	printk("to_flash write size %x\r", size);
 
 	if (!flash) {
 		return -DELTA_CASTING_ERROR;
 	}
+
+	if (flash->flush_write)
+	{
+		printk("Flush last Flash buffer\r");
+		if (erase_page(flash, flash->to_current)) {
+			return -DELTA_CLEARING_ERROR;
+		}
+		if (flash_write(flash->device, flash->to_current, to_flash_buf, flash->write_buf)) {
+			printk("flash write err\r");
+			return -DELTA_WRITING_ERROR;
+		}
+
+		flash->to_current += flash->write_buf;
+		flash->write_buf = 0;
+		flash->flush_write = false;
+		
+		return DELTA_OK;		
+	}
+
+	if (size > PAGE_SIZE)
+	{
+		printk("error size\r");
+		return -DELTA_WRITING_ERROR;
+	}
 	// if (flash_write_protection_set(flash->device, false)) {
 	// 	return -DELTA_WRITING_ERROR;
 	// }
-	if (flash_write(flash->device, flash->to_current, buf_p, size)) {
-		return -DELTA_WRITING_ERROR;
+
+	memcpy(to_flash_buf + flash->write_buf, buf_p, size);  //put the TO content to a temp buffer first
+	flash->write_buf += size;
+
+	if (flash->write_buf >= PAGE_SIZE) {
+		if (erase_page(flash, flash->to_current)) {
+			return -DELTA_CLEARING_ERROR;
+		}
+		if (flash_write(flash->device, flash->to_current, to_flash_buf, PAGE_SIZE)) {
+			printk("flash write2 err\r");
+			return -DELTA_WRITING_ERROR;
+		}
+		flash->to_current += (off_t) PAGE_SIZE;
+		if (flash->to_current >= flash->to_end) {
+			return -DELTA_SLOT1_OUT_OF_MEMORY;
+		}
+
+		flash->write_buf = flash->write_buf - PAGE_SIZE;			
+		memcpy(to_flash_buf, &to_flash_buf[PAGE_SIZE], flash->write_buf);		
+		
 	}
+
 	// if (flash_write_protection_set(flash->device, true)) {
 	// 	return -DELTA_WRITING_ERROR;
 	// }
 
-	flash->to_current += (off_t) size;
-	if (flash->to_current >= flash->to_end) {
-		return -DELTA_SLOT1_OUT_OF_MEMORY;
-	}
-
 	return DELTA_OK;
+}
+
+
+int write_last_buffer(void *arg_p)
+{
+	struct flash_mem *flash;
+	uint8_t temp[4];
+
+	flash = (struct flash_mem *)arg_p;
+	flash->flush_write = true;
+
+	return delta_flash_write(arg_p, temp, 4);
+	
 }
 
 static int delta_flash_from_read(void *arg_p,
@@ -71,7 +115,7 @@ static int delta_flash_from_read(void *arg_p,
 	struct flash_mem *flash;
 
 	flash = (struct flash_mem *)arg_p;
-
+	printk("from_flash read size %x off: %x\r", size, flash->from_current);
 	if (!flash) {
 		return -DELTA_CASTING_ERROR;
 	}
@@ -98,6 +142,7 @@ static int delta_flash_patch_read(void *arg_p,
 	struct flash_mem *flash;
 
 	flash = (struct flash_mem *)arg_p;
+	printk("patch_flash read size %x\r", size);
 
 	if (!flash) {
 		return -DELTA_CASTING_ERROR;
@@ -124,6 +169,7 @@ static int delta_flash_seek(void *arg_p, int offset)
 
 	flash = (struct flash_mem *)arg_p;
 
+	printk("from_flash seek offset %x\r", offset);
 	if (!flash) {
 		return -DELTA_CASTING_ERROR;
 	}
@@ -150,20 +196,18 @@ static int delta_init_flash_mem(struct flash_mem *flash)
 	flash->from_current = PRIMARY_OFFSET;
 	flash->from_end = flash->from_current + PRIMARY_SIZE;
 
-	flash->to_current = SECONDARY_OFFSET;
-	flash->to_end = flash->to_current + SECONDARY_SIZE;
+	flash->to_current = PRIMARY_OFFSET;
+	flash->to_end = flash->to_current + PRIMARY_SIZE;
 
-	// flash->to_current = PRIMARY_OFFSET;
-	// flash->to_end = flash->to_current + PRIMARY_SIZE;
-
-	flash->patch_current = PATCH_OFFSET + HEADER_SIZE;
-	flash->patch_end = flash->patch_current + PATCH_SIZE;
+	flash->patch_current = SECONDARY_OFFSET + HEADER_SIZE;
+	flash->patch_end = flash->patch_current + SECONDARY_SIZE - HEADER_SIZE;
 
 	flash->write_buf = 0;
+	flash->flush_write = false;
 
-	printf("\nfrom_current=%0X\t size=%0X\t to_current=%0X\t size=%0X\t patch_current=%0X\t size=%0X\n",
-		flash->from_current,PRIMARY_SIZE,flash->to_current,SECONDARY_SIZE,flash->patch_current,PATCH_SIZE);
-
+	// printf("\nfrom_current=%0X\t size=%0X\t to_current=%0X\t size=%0X\t patch_current=%0X\t size=%0X\n",
+	// 	flash->from_current,PRIMARY_SIZE,flash->to_current,SECONDARY_SIZE,flash->patch_current,STORAGE_SIZE);
+	printk("##patch start %x\r", flash->patch_current);
 	return DELTA_OK;
 }
 
@@ -175,10 +219,10 @@ static int delta_init(struct flash_mem *flash)
 	if (ret) {
 		return ret;
 	}
-	ret = erase_page(flash, flash->to_current);
-	if (ret) {
-		return ret;
-	}
+	// ret = erase_page(flash, flash->to_current);
+	// if (ret) {
+	// 	return ret;
+	// }
 
 	return DELTA_OK;
 }
@@ -193,7 +237,7 @@ int delta_check_and_apply(struct flash_mem *flash)
 	int ret;
 
 	ret = delta_read_patch_header(flash,&patch_size);
-	printf("patch_size = %d\n", patch_size);
+	printf("##patch_size = %d\n", patch_size);
 #if 1
 	if (ret < 0) {
 		printf("ret=%d	read patch file error, exit delta update process!!!\n", ret);
@@ -234,10 +278,10 @@ int delta_read_patch_header(struct flash_mem *flash, uint32_t *size)
 	reset_msg = 0x0U; // reset "NEWP"
 
 	/* For tests purposes use page (in primary_flash = 4 kB) */
-	flash_get_page_info_by_offs(flash->device, PATCH_OFFSET,&page_info);
-	printf("start_offset=%0X\t storage_size=%d\t size=%d\t index=%d\n",page_info.start_offset, PATCH_SIZE, page_info.size, page_info.index);
+	flash_get_page_info_by_offs(flash->device, SECONDARY_OFFSET,&page_info);
+	printf("start_offset=%0X\t patch_size=%d\t size=%d\t index=%d\n",page_info.start_offset, SECONDARY_SIZE, page_info.size, page_info.index);
 
-	if (flash_read(flash->device, PATCH_OFFSET, patch_header, sizeof(patch_header))) {
+	if (flash_read(flash->device, SECONDARY_OFFSET, patch_header, sizeof(patch_header))) {
 		return -DELTA_PATCH_HEADER_ERROR;
 	}
 	printk("read_data[0]=%0X\t read_data[1]=%0X\r\n", patch_header[0], patch_header[1]);
@@ -249,7 +293,7 @@ int delta_read_patch_header(struct flash_mem *flash, uint32_t *size)
 
 	*size = patch_header[1];
 	/** just for test */
-	if (flash_write(flash->device, PATCH_OFFSET, &reset_msg, sizeof(reset_msg))) {
+	if (flash_write(flash->device, SECONDARY_OFFSET, &reset_msg, sizeof(reset_msg))) {
 		return -DELTA_PATCH_HEADER_ERROR;
 	}
 

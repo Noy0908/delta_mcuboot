@@ -625,7 +625,6 @@ void main(void)
     rc = delta_check_and_apply(&flash_pt);
 	if (DELTA_OK == rc) {
         BOOT_LOG_INF("Delta DFU apply finished, please check it!!!\r\n\r\n");
-        while(1);
     }
     //imply_patch_to_primary_slot();        //imply the patch file to primary slot
 #endif
