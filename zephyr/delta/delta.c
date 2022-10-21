@@ -13,7 +13,7 @@
 static int erase_page(struct flash_mem *flash, off_t offset)
 {
 	offset = offset - offset%PAGE_SIZE; /* find start of page */
-
+	//printk("\r\nErase_page:address=%p\r\n", offset);
 	// if (flash_write_protection_set(flash->device, false)) {
 	// 	return -DELTA_CLEARING_ERROR;
 	// }
@@ -35,8 +35,12 @@ static int delta_flash_write(void *arg_p,
 
 	flash = (struct flash_mem *)arg_p;
 	flash->write_buf += size;
+	size_t free_page_size = PAGE_SIZE - flash->to_current % PAGE_SIZE;
 
-	if (flash->write_buf >= PAGE_SIZE) {
+	//if ((flash->write_buf >= PAGE_SIZE) || ((flash->write_buf>0) && ((flash->to_current+size)%PAGE_SIZE > 0)))
+	if(free_page_size < size)
+	{
+		printk("\r\nErase_page:address=%p\r\n", flash->to_current + (off_t) size - (flash->to_current + (off_t) size)%PAGE_SIZE - 0x78000);
 		if (erase_page(flash, flash->to_current + (off_t) size)) {
 			return -DELTA_CLEARING_ERROR;
 		}
@@ -46,15 +50,19 @@ static int delta_flash_write(void *arg_p,
 	if (!flash) {
 		return -DELTA_CASTING_ERROR;
 	}
-	// if (flash_write_protection_set(flash->device, false)) {
-	// 	return -DELTA_WRITING_ERROR;
-	// }
+	
 	if (flash_write(flash->device, flash->to_current, buf_p, size)) {
 		return -DELTA_WRITING_ERROR;
 	}
-	// if (flash_write_protection_set(flash->device, true)) {
-	// 	return -DELTA_WRITING_ERROR;
-	// }
+
+	printk("\r\nFlash_write_to:address=0x%X\t size=%d\n", flash->to_current-0x78000,size);
+	for(int i = 0; i< size; i++)
+	{
+		if(0 == i%16)
+			printk("\r\n%p--%p:\t", flash->to_current-0x78000+i,flash->to_current+i);
+
+		printk("%02X  ", buf_p[i]);
+	}
 
 	flash->to_current += (off_t) size;
 	if (flash->to_current >= flash->to_end) {

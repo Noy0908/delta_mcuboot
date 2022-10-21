@@ -436,6 +436,8 @@ static int process_init(struct detools_apply_patch_t *self_p)
     self_p->to_offset = 0;
     self_p->to_size = (size_t)to_size;
 
+    printk("to_size=%d\n",to_size);
+
     if (to_size > 0) {
         self_p->state = detools_apply_patch_state_dfpatch_size_t;
     } else {
@@ -824,7 +826,7 @@ static int callbacks_process(struct detools_apply_patch_t *apply_patch_p,
                                               &chunk[0],
                                               chunk_size);
             patch_offset += chunk_size;
-            printf("patch_offset=%d\t patch_size=%d\t progress = %d%%\n", patch_offset,patch_size,patch_offset*100/patch_size);
+            //printf("patch_offset=%d\t patch_size=%d\t progress = %d%%\n", patch_offset,patch_size,patch_offset*100/patch_size);
         } else {
             res = -DETOOLS_IO_FAILED;
         }
