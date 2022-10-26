@@ -526,6 +526,8 @@ static bool detect_pin(void)
 #define FLASH_NODEID 	DT_CHOSEN(zephyr_flash_controller)
 #endif
 
+extern volatile bool real_apply;
+
 void main(void)
 {
     struct boot_rsp rsp;
@@ -622,10 +624,25 @@ void main(void)
 		return;
 	}
     BOOT_LOG_INF("Delta DFU start: apply patch to primary slot......\r\n\r\n");
+
+    //call delta_check_and_apply twice
+    //get the image adjust locations for the first time
+    real_apply = false;
     rc = delta_check_and_apply(&flash_pt);
-	if (DELTA_OK == rc) {
-        BOOT_LOG_INF("Delta DFU apply finished, please check it!!!\r\n\r\n");
+	if (rc == 0) {
+        //apply the patch in a true way for the second time
+        real_apply = true;
+        rc = delta_check_and_apply(&flash_pt);
+        if (rc) {
+            BOOT_LOG_INF("## Delta DFU failed %d", rc);
+        }       
     }
+    else
+    {
+        BOOT_LOG_INF("## Iterate the image adjust locations failed %d", rc);
+    }
+
+
     //imply_patch_to_primary_slot();        //imply the patch file to primary slot
 #endif
 

@@ -402,7 +402,7 @@ static int process_init(struct detools_apply_patch_t *self_p)
     uint8_t byte;
     int res;
     int to_size;
-    printk("process_init\r");
+    // printk("process_init\r");
     if (chunk_get(&self_p->chunk, &byte) != 0) {
         return (-DETOOLS_SHORT_HEADER);
     }
@@ -449,7 +449,7 @@ static int process_dfpatch_size(struct detools_apply_patch_t *self_p)
 {
     int res;
     int size;
-    printk("process_dfpatch_size\r");
+    // printk("process_dfpatch_size\r");
     res = patch_reader_unpack_size(&self_p->patch_reader, &size);
 
     if (res != 0) {
@@ -494,7 +494,7 @@ static int process_data(struct detools_apply_patch_t *self_p,
     uint8_t to[128];
     size_t to_size;
     uint8_t from[128];
-    printk("##process_data state %d\r", next_state);
+    // printk("##process_data state %d\r", next_state);
     to_size = MIN(sizeof(to), self_p->chunk_size);
 
     if (to_size == 0) {
@@ -539,25 +539,25 @@ static int process_data(struct detools_apply_patch_t *self_p,
 
 static int process_diff_size(struct detools_apply_patch_t *self_p)
 {
-    printk("process_diff_size\r");
+    // printk("process_diff_size\r");
     return (process_size(self_p, detools_apply_patch_state_diff_data_t));
 }
 
 static int process_diff_data(struct detools_apply_patch_t *self_p)
 {
-    printk("process_diff_data\r");
+    // printk("process_diff_data\r");
     return (process_data(self_p, detools_apply_patch_state_extra_size_t));
 }
 
 static int process_extra_size(struct detools_apply_patch_t *self_p)
 {
-    printk("process_extra_size\r");
+    // printk("process_extra_size\r");
     return (process_size(self_p, detools_apply_patch_state_extra_data_t));
 }
 
 static int process_extra_data(struct detools_apply_patch_t *self_p)
 {
-    printk("process_extra_data\r");
+    // printk("process_extra_data\r");
     return (process_data(self_p, detools_apply_patch_state_adjustment_t));
 }
 
@@ -565,7 +565,7 @@ static int process_adjustment(struct detools_apply_patch_t *self_p)
 {
     int res;
     int offset;
-    printk("process_adjustment\r");
+    // printk("process_adjustment\r");
     res = patch_reader_unpack_size(&self_p->patch_reader, &offset);
 
     if (res != 0) {
@@ -592,7 +592,7 @@ static int process_adjustment(struct detools_apply_patch_t *self_p)
 static int apply_patch_process_once(struct detools_apply_patch_t *self_p)
 {
     int res;
-    printk("apply_patch_process_once\r");
+    // printk("apply_patch_process_once\r");
     switch (self_p->state) {
 
     case detools_apply_patch_state_init_t:
@@ -797,7 +797,8 @@ int detools_apply_patch_finalize(struct detools_apply_patch_t *self_p)
     } while (res == 0);
     //  printf("res=%d\t target_offset=%d\t target_size = %d\n",res, self_p->to_offset,self_p->to_size);
     
-    write_last_buffer(self_p->arg_p);
+    res = write_last_buffer(self_p->arg_p);
+    if (res) return res;
     
     result = apply_patch_common_finalize(res,
                                         &self_p->patch_reader,
