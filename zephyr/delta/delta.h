@@ -74,7 +74,7 @@ struct flash_mem {
  * code.
  */
 int delta_check_and_apply(struct flash_mem *flash);
-
+bool enter_delta_dfu(struct flash_mem *flash);
 /**
  * Functiong for reading the metadata from the patch and
  * changing the header to mark that the patch has been

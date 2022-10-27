@@ -211,7 +211,7 @@ boot_status_internal_off(const struct boot_status *bs, int elem_sz)
 int
 boot_slots_compatible(struct boot_loader_state *state)
 {
-#ifdef PM_S1_ADDRESS
+#ifdef PM_S1_ADDRESS || MCUBOOT_DELTA_UPGRADE
     /* Patch needed for NCS. In this case, image 1 primary points to the other
      * B1 slot (ie S0 or S1), and image 0 primary points to the app.
      * With this configuration, image 0 and image 1 share the secondary slot.

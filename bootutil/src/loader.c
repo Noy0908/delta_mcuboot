@@ -48,6 +48,13 @@
 #include "bootutil/boot_hooks.h"
 #include "bootutil/mcuboot_status.h"
 
+#ifdef MCUBOOT_DELTA_UPGRADE
+#include "../../zephyr/delta/delta.h"
+#define FLASH_NODEID 	DT_CHOSEN(zephyr_flash_controller)
+extern volatile bool real_apply;
+#endif
+
+
 #if defined(CONFIG_SOC_NRF5340_CPUAPP) && defined(PM_CPUNET_B0N_ADDRESS)
 #include <dfu/pcd.h> 
 #endif
@@ -1625,12 +1632,75 @@ static int
 boot_perform_update(struct boot_loader_state *state, struct boot_status *bs)
 {
     int rc;
+    bool delta_mode;
 #ifndef MCUBOOT_OVERWRITE_ONLY
     uint8_t swap_type;
 #endif
 
     /* At this point there are no aborted swaps. */
-#if defined(MCUBOOT_OVERWRITE_ONLY)
+#if defined (MCUBOOT_DELTA_UPGRADE)
+    struct flash_mem flash_pt = {0};
+    uint32_t copy_size;
+    const struct flash_area *fap_pri;
+    uint32_t new_off;
+    uint32_t old_off;    
+
+    //flash_pt = k_malloc(sizeof(struct flash_mem));
+	flash_pt.device = DEVICE_DT_GET(FLASH_NODEID);
+	if(!flash_pt.device) {
+		return -BOOT_EFLASH;
+	}
+    delta_mode = enter_delta_dfu(&flash_pt);
+    if (delta_mode)
+    {
+        //move the primary image up for 1 slot
+        rc = boot_read_image_size(state, BOOT_PRIMARY_SLOT, &copy_size);
+        assert (rc == 0);
+        printk("=== image size 0x%x\r", copy_size);
+        rc = flash_area_open(FLASH_AREA_IMAGE_PRIMARY(image_index), &fap_pri);
+        assert (rc == 0);
+        new_off = (copy_size/PAGE_SIZE + 1) * PAGE_SIZE;
+        if (copy_size % PAGE_SIZE == 0)
+        {
+            new_off -= PAGE_SIZE;
+        }
+        while (new_off >= PAGE_SIZE)
+        {
+            rc = boot_erase_region(fap_pri, new_off, PAGE_SIZE);
+            assert(rc == 0);
+
+            rc = boot_copy_region(state, fap_pri, fap_pri, new_off-PAGE_SIZE, new_off, PAGE_SIZE);
+            assert(rc == 0);
+
+            new_off -= PAGE_SIZE;
+        }
+
+        flash_area_close(fap_pri);        
+    }
+    else
+    {
+        return 0;
+    }
+
+    BOOT_LOG_INF("\r\nDelta DFU start: apply patch to primary slot......\r\n");
+
+    //call delta_check_and_apply twice
+    //get the image adjust locations for the first time
+    real_apply = false;
+    rc = delta_check_and_apply(&flash_pt);
+	if (rc == 0) {
+        //apply the patch in a true way for the second time
+        real_apply = true;
+        rc = delta_check_and_apply(&flash_pt);
+        if (rc) {
+            BOOT_LOG_INF("## Delta DFU failed %d", rc);
+        }       
+    }
+    else
+    {
+        BOOT_LOG_INF("## Iterate the image adjust locations failed %d", rc);
+    }
+#elif defined(MCUBOOT_OVERWRITE_ONLY)
     rc = boot_copy_image(state, bs);
 #elif defined(MCUBOOT_BOOTSTRAP)
     /* Check if the image update was triggered by a bad image in the
@@ -2087,6 +2157,7 @@ context_boot_go(struct boot_loader_state *state, struct boot_rsp *rsp)
 #endif
 
         /* Determine swap type and complete swap if it has been aborted. */
+
         boot_prepare_image_for_update(state, &bs);
 
         if (BOOT_IS_UPGRADE(BOOT_SWAP_TYPE(state))) {
