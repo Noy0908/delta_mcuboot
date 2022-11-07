@@ -40,9 +40,6 @@
 #include <fw_info.h>
 #endif
 
-// #ifdef MCUBOOT_DELTA_UPGRADE
-// #include "delta/delta.h"
-// #endif
 
 #ifdef CONFIG_MCUBOOT_SERIAL
 #include "boot_serial/boot_serial.h"
@@ -521,12 +518,7 @@ static bool detect_pin(void)
 }
 #endif
 
-// #if defined(MCUBOOT_DELTA_UPGRADE)
-// /* SoC embedded NVM */
-// #define FLASH_NODEID 	DT_CHOSEN(zephyr_flash_controller)
-// #endif
 
-// extern volatile bool real_apply;
 
 void main(void)
 {
@@ -615,36 +607,6 @@ void main(void)
     int timeout_in_ms = CONFIG_BOOT_SERIAL_WAIT_FOR_DFU_TIMEOUT;
     uint32_t start = k_uptime_get_32();
 #endif
-
-// #ifdef MCUBOOT_DELTA_UPGRADE
-//     struct flash_mem flash_pt = {0};
-//     //flash_pt = k_malloc(sizeof(struct flash_mem));
-// 	flash_pt.device = DEVICE_DT_GET(FLASH_NODEID);
-// 	if(!flash_pt.device) {
-// 		return;
-// 	}
-//     BOOT_LOG_INF("Delta DFU start: apply patch to primary slot......\r\n\r\n");
-
-//     //call delta_check_and_apply twice
-//     //get the image adjust locations for the first time
-//     real_apply = false;
-//     rc = delta_check_and_apply(&flash_pt);
-// 	if (rc == 0) {
-//         //apply the patch in a true way for the second time
-//         real_apply = true;
-//         rc = delta_check_and_apply(&flash_pt);
-//         if (rc) {
-//             BOOT_LOG_INF("## Delta DFU failed %d", rc);
-//         }       
-//     }
-//     else
-//     {
-//         BOOT_LOG_INF("## Iterate the image adjust locations failed %d", rc);
-//     }
-
-
-//     //imply_patch_to_primary_slot();        //imply the patch file to primary slot
-// #endif
 
     FIH_CALL(boot_go, fih_rc, &rsp);
 

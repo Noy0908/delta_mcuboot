@@ -57,7 +57,7 @@ struct flash_mem {
 	off_t from_end;
 	off_t to_current;
 	off_t to_end;
-	size_t write_buf;
+	size_t write_size;
 	bool flush_write;
 };
 

@@ -788,7 +788,7 @@ boot_validate_slot(struct boot_loader_state *state, int slot,
     }
     if (!boot_is_header_valid(hdr, fap) || fih_not_eq(fih_rc, FIH_SUCCESS)) {
         if ((slot != BOOT_PRIMARY_SLOT) || ARE_SLOTS_EQUIVALENT()) {
-//            flash_area_erase(fap, 0, flash_area_get_size(fap));       //just for test
+            flash_area_erase(fap, 0, flash_area_get_size(fap));       //just for test
             /* Image is invalid, erase it to prevent further unnecessary
              * attempts to validate and boot it.
              */
@@ -984,6 +984,7 @@ boot_validated_swap_type(struct boot_loader_state *state,
             }
         } else {
             upgrade_valid = true;
+            printk("Congratulations, Secondary image file is validata!!!\r\n");
         }
 
 #if defined(CONFIG_SOC_NRF5340_CPUAPP) && defined(PM_CPUNET_B0N_ADDRESS)
@@ -1645,7 +1646,6 @@ boot_perform_update(struct boot_loader_state *state, struct boot_status *bs)
     uint32_t new_off;
     uint32_t old_off;    
 
-    //flash_pt = k_malloc(sizeof(struct flash_mem));
 	flash_pt.device = DEVICE_DT_GET(FLASH_NODEID);
 	if(!flash_pt.device) {
 		return -BOOT_EFLASH;
@@ -1653,10 +1653,11 @@ boot_perform_update(struct boot_loader_state *state, struct boot_status *bs)
     delta_mode = enter_delta_dfu(&flash_pt);
     if (delta_mode)
     {
+        #if 1
         //move the primary image up for 1 slot
         rc = boot_read_image_size(state, BOOT_PRIMARY_SLOT, &copy_size);
         assert (rc == 0);
-        printk("=== image size 0x%x\r", copy_size);
+        printk("Time: %d\t === image size 0x%x\r", k_uptime_get_32(),copy_size);
         rc = flash_area_open(FLASH_AREA_IMAGE_PRIMARY(image_index), &fap_pri);
         assert (rc == 0);
         new_off = (copy_size/PAGE_SIZE + 1) * PAGE_SIZE;
@@ -1673,16 +1674,24 @@ boot_perform_update(struct boot_loader_state *state, struct boot_status *bs)
             assert(rc == 0);
 
             new_off -= PAGE_SIZE;
+
+            rc = boot_write_status(state, bs);
+            bs->idx++;
         }
 
-        flash_area_close(fap_pri);        
+        flash_area_close(fap_pri);     
+        #else
+        printk("Time: %d\t === start move up primary a page!!!\r\n", k_uptime_get_32());
+        rc = boot_swap_image(state, bs);
+        assert(rc == 0);
+        #endif   
     }
     else
     {
         return 0;
     }
 
-    BOOT_LOG_INF("\r\nDelta DFU start: apply patch to primary slot......\r\n");
+    BOOT_LOG_INF("\r\nTime: %d\t Delta DFU start: apply patch to primary slot......\r\n",k_uptime_get_32());
 
     //call delta_check_and_apply twice
     //get the image adjust locations for the first time
@@ -1894,6 +1903,8 @@ boot_prepare_image_for_update(struct boot_loader_state *state,
     int rc;
     fih_int fih_rc = FIH_FAILURE;
 
+    printk("Before：bs->idx=%d\t bs->op=%d\t  bs->state=%d\t bs->swap_type=%d\r\n", bs->idx,bs->op,bs->state,bs->swap_type);
+
     /* Determine the sector layout of the image slots and scratch area. */
     rc = boot_read_sectors(state);
     if (rc != 0) {
@@ -1926,7 +1937,7 @@ boot_prepare_image_for_update(struct boot_loader_state *state,
     if (boot_slots_compatible(state)) {
         boot_status_reset(bs);
 
-#ifndef MCUBOOT_OVERWRITE_ONLY
+#if (!defined MCUBOOT_OVERWRITE_ONLY) || (defined MCUBOOT_DELTA_UPGRADE)
         rc = swap_read_status(state, bs);
         if (rc != 0) {
             BOOT_LOG_WRN("Failed reading boot status; Image=%u",
@@ -1935,7 +1946,9 @@ boot_prepare_image_for_update(struct boot_loader_state *state,
             BOOT_SWAP_TYPE(state) = BOOT_SWAP_TYPE_NONE;
             return;
         }
+        printk("After:bs->idx=%d\t bs->op=%d\t  bs->state=%d\t bs->swap_type=%d\r\n", bs->idx,bs->op,bs->state,bs->swap_type);
 #endif
+
 
 #ifdef MCUBOOT_SWAP_USING_MOVE
         /*
@@ -2157,9 +2170,7 @@ context_boot_go(struct boot_loader_state *state, struct boot_rsp *rsp)
 #endif
 
         /* Determine swap type and complete swap if it has been aborted. */
-
         boot_prepare_image_for_update(state, &bs);
-
         if (BOOT_IS_UPGRADE(BOOT_SWAP_TYPE(state))) {
             has_upgrade = true;
         }
@@ -2182,7 +2193,6 @@ context_boot_go(struct boot_loader_state *state, struct boot_rsp *rsp)
         }
     }
 #endif
-
     /* Trigger status change callback with upgrading status */
     mcuboot_status_change(MCUBOOT_STATUS_UPGRADING);
 

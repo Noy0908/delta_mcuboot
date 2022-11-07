@@ -46,12 +46,12 @@ static int delta_flash_write(void *arg_p,
 
 	if (!real_apply)
 	{		
-		flash->write_buf += size;
-		if (flash->write_buf >= ERASE_PAGE_SIZE) {
+		flash->write_size += size;
+		if (flash->write_size >= ERASE_PAGE_SIZE) {
 			erased_addr =  flash->to_current + ERASE_PAGE_SIZE;
 			printk("==== erased_addr 0x%x\r", erased_addr);
 			flash->to_current += (off_t) ERASE_PAGE_SIZE;
-			flash->write_buf = flash->write_buf - ERASE_PAGE_SIZE;
+			flash->write_size = flash->write_size - ERASE_PAGE_SIZE;
 		}
 
 		if (flash->flush_write)
@@ -119,13 +119,13 @@ static int delta_flash_write(void *arg_p,
 		if (flash_erase(flash->device, flash->to_current, ERASE_PAGE_SIZE)) {
 			return -DELTA_CLEARING_ERROR;
 		}
-		if (flash_write(flash->device, flash->to_current, to_flash_buf, flash->write_buf)) {
+		if (flash_write(flash->device, flash->to_current, to_flash_buf, flash->write_size)) {
 			printk("flash write err\r");
 			return -DELTA_WRITING_ERROR;
 		}
 
-		flash->to_current += flash->write_buf;
-		flash->write_buf = 0;
+		flash->to_current += flash->write_size;
+		flash->write_size = 0;
 		flash->flush_write = false;
 		
 		return DELTA_OK;		
@@ -140,10 +140,10 @@ static int delta_flash_write(void *arg_p,
 	// 	return -DELTA_WRITING_ERROR;
 	// }
 
-	memcpy(to_flash_buf + flash->write_buf, buf_p, size);  //put the TO content to a temp buffer first
-	flash->write_buf += size;
+	memcpy(to_flash_buf + flash->write_size, buf_p, size);  //put the TO content to a temp buffer first
+	flash->write_size += size;
 
-	if (flash->write_buf >= ERASE_PAGE_SIZE) {
+	if (flash->write_size >= ERASE_PAGE_SIZE) {
 		if (flash_erase(flash->device, flash->to_current, ERASE_PAGE_SIZE)) {
 			return -DELTA_CLEARING_ERROR;
 		}
@@ -159,8 +159,8 @@ static int delta_flash_write(void *arg_p,
 			return -DELTA_SLOT1_OUT_OF_MEMORY;
 		}
 
-		flash->write_buf = flash->write_buf - ERASE_PAGE_SIZE;			
-		memcpy(to_flash_buf, &to_flash_buf[ERASE_PAGE_SIZE], flash->write_buf);		
+		flash->write_size = flash->write_size - ERASE_PAGE_SIZE;			
+		memcpy(to_flash_buf, &to_flash_buf[ERASE_PAGE_SIZE], flash->write_size);		
 		
 	}
 
@@ -354,7 +354,7 @@ static int delta_init_flash_mem(struct flash_mem *flash)
 	flash->patch_current = SECONDARY_OFFSET + 0x200 + HEADER_SIZE;
 	flash->patch_end = flash->patch_current + SECONDARY_SIZE - HEADER_SIZE - 0x200 - PAGE_SIZE;
 
-	flash->write_buf = 0;
+	flash->write_size = 0;
 	flash->flush_write = false;
 
 	image_position_adjust.count = 0;
