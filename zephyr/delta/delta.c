@@ -5,20 +5,13 @@
  */
 #include "delta.h"
 
-#define DATA_LEN 2
-#define ADDR_LEN 4
-#define DATA_HEADER (DATA_LEN+ADDR_LEN)
-#define MAGIC_VALUE1 0x202215FF
-#define MAGIC_VALUE2 0x202215F0
-#define MAGIC_VALUE3 0x20221500
-#define ERASE_PAGE_SIZE (PAGE_SIZE*2)
-#define IMAGE_ARRAY_SIZE PAGE_SIZE/8
-#define MAX_WRITE_UNIT 128  //relating to to/from array of process_data in detools.c
 
-volatile int erased_addr;
-volatile bool real_apply;
+const struct device *flash_device;
 uint32_t patch_size; 
-bool is_init;
+static uint8_t to_flash_buf[ERASE_PAGE_SIZE + MAX_WRITE_UNIT];
+//off_t status_addr = 0xfe000;
+uint8_t opFlag = 0;	
+struct detools_apply_patch_t apply_patch;
 
 struct
 {
@@ -27,141 +20,223 @@ struct
 	uint16_t count;
 } image_position_adjust;
 
+static int flush_patch_status(struct detools_apply_patch_t *self_p,struct flash_mem *flash);
+/*
+ *  INIT
+ */
 
-static int delta_flash_write(void *arg_p,
-					const uint8_t *buf_p,
-					size_t size)
+static int delta_init_flash_mem(struct flash_mem *flash)
 {
-	struct flash_mem *flash;
-	static uint8_t to_flash_buf[ERASE_PAGE_SIZE + MAX_WRITE_UNIT];
-	uint16_t i;
-
-	flash = (struct flash_mem *)arg_p;	
-
-	printk("to_flash write size 0x%x\r", size);
+	uint32_t magic[2];
 
 	if (!flash) {
-		return -DELTA_CASTING_ERROR;
+		return -DELTA_NO_FLASH_FOUND;
 	}
 
-	if (!real_apply)
-	{		
-		flash->write_size += size;
-		if (flash->write_size >= ERASE_PAGE_SIZE) {
-			erased_addr =  flash->to_current + ERASE_PAGE_SIZE;
-			printk("==== erased_addr 0x%x\r", erased_addr);
-			flash->to_current += (off_t) ERASE_PAGE_SIZE;
-			flash->write_size = flash->write_size - ERASE_PAGE_SIZE;
-		}
+	flash->from_current = PRIMARY_OFFSET + PAGE_SIZE;
+	flash->from_end = flash->from_current + PRIMARY_SIZE - PAGE_SIZE;
 
-		if (flash->flush_write)
-		{
-			uint32_t total_size = 0;
-			uint8_t data[MAX_WRITE_UNIT + DATA_HEADER + 2];
-			uint32_t addr;
-			uint32_t magic[2];
+	flash->to_current = PRIMARY_OFFSET;
+	flash->to_end = flash->to_current + PRIMARY_SIZE - PAGE_SIZE;
 
-			magic[0] = MAGIC_VALUE1;
+	flash->erased_addr = PRIMARY_OFFSET;
 
-			printk("==== Write adjustment to Flash\r");
-			//write image_position_adjust to Flash
-			for (i = 0; i < image_position_adjust.count; i++)
-			{
-				total_size += (DATA_HEADER +image_position_adjust.size[i]);  //addr->4bytes len->2bytes				
-			}
-			printk("==== totat size 0x%x\r", total_size);
+	flash->patch_current = SECONDARY_OFFSET + 0x200 + HEADER_SIZE;
+	flash->patch_end = flash->patch_current + SECONDARY_SIZE - HEADER_SIZE - 0x200 - PAGE_SIZE*5;
 
-			if ((patch_size + HEADER_SIZE + total_size) > SECONDARY_SIZE)
-			{
-				printk("## The delta file has a big variation!");
-				return DELTA_WRITING_ERROR;
-			}
+	flash->write_size = 0;
 
-			for (i = 1; i <= (total_size/PAGE_SIZE + 1); i++)
-			{
-				flash_erase(flash->device, flash->patch_end - i * PAGE_SIZE, PAGE_SIZE);
-			}			
-			magic[1] = addr = flash->patch_end - PAGE_SIZE * (i-1);
+	flash->backup_addr = 0;
 
-			for (i = 0; i < image_position_adjust.count; i++)
-			{				
-				total_size = (DATA_HEADER +image_position_adjust.size[i]);
-				*(uint16_t *)&data[0] = image_position_adjust.size[i];
-				*(uint32_t *)&data[DATA_LEN] = image_position_adjust.addr[i];
+	image_position_adjust.count = 0;
 
-				if (flash_read(flash->device, image_position_adjust.addr[i], &data[DATA_HEADER], 
-					image_position_adjust.size[i]))
-				{
-					printk("flash read err\r");
-					return -DELTA_READING_SOURCE_ERROR;
-				}
+	return DELTA_OK;
+}
 
-				if (flash_write(flash->device, addr, data, total_size)) {
-					printk("flash write err\r");
-					return -DELTA_WRITING_ERROR;
-				}
+#ifdef DELTA_ENABLE_LOG
+static void print_apply_patch_info(struct detools_apply_patch_t *apply_patch)
+{
+	printk("chunk.size=%d chunk.offset=%d patch_offset=%d to_offset=%d from_offset=%d chunk_size=%d reader:state=%d value=%d offset=%d issigned=%d\r"
+			"heatshrink: window_sz2=%d lookahead_sz2=%d decoder:head_index=%d state=%d output_count=%d output_index=%d current_byte=%d bit_index=%d\r\n",
+			apply_patch->chunk.size,apply_patch->chunk.offset,apply_patch->patch_offset,apply_patch->to_offset,apply_patch->from_offset,apply_patch->chunk_size,
+			apply_patch->patch_reader.size.state,apply_patch->patch_reader.size.value,apply_patch->patch_reader.size.offset,apply_patch->patch_reader.size.is_signed,
+			apply_patch->patch_reader.compression.heatshrink.window_sz2,apply_patch->patch_reader.compression.heatshrink.lookahead_sz2,
+			apply_patch->patch_reader.compression.heatshrink.decoder.head_index,apply_patch->patch_reader.compression.heatshrink.decoder.state,
+			apply_patch->patch_reader.compression.heatshrink.decoder.output_count,apply_patch->patch_reader.compression.heatshrink.decoder.output_index,
+			apply_patch->patch_reader.compression.heatshrink.decoder.current_byte,apply_patch->patch_reader.compression.heatshrink.decoder.bit_index);
+}
+#endif
 
-				addr += total_size;
-			}
 
-			if (flash_write(flash->device, flash->patch_end-sizeof(magic), magic, sizeof(magic))) {
-				printk("magic1 write err\r");
-				return -DELTA_WRITING_ERROR;
-			}			
-		}
+static int save_backup_image(void *arg_p)
+{
+	uint16_t i;
+	uint32_t total_size = 0;
+	uint8_t data[MAX_WRITE_UNIT + DATA_HEADER + 2];
+	uint32_t addr;
+	uint32_t magic = 0;
+	uint32_t opFlag = DELTA_OP_TRAVERSE;
 
-		return DELTA_OK;		
-	}
+	struct flash_mem *flash = (struct flash_mem *)arg_p;	
 
-	if (flash->flush_write)
+	printk("==== Write adjustment to Flash\r");
+	//write image_position_adjust to Flash
+	for (i = 0; i < image_position_adjust.count; i++)
 	{
-		printk("===== Flush last Flash buffer\r");
-		if (flash_erase(flash->device, flash->to_current, ERASE_PAGE_SIZE)) {
-			return -DELTA_CLEARING_ERROR;
+		total_size += (DATA_HEADER +image_position_adjust.size[i]);  //addr->4bytes len->2bytes				
+	}
+	printk("==== total_count=%d\t totat_size=0x%x\r\n", image_position_adjust.count,total_size);
+
+	if ((patch_size + HEADER_SIZE + total_size) > SECONDARY_SIZE)
+	{
+		printk("## The delta file has a big variation!");
+		return DELTA_WRITING_ERROR;
+	}
+
+	for (i = 2; i <= (total_size/PAGE_SIZE + 2); i++)
+	{
+		flash_erase(flash_device, flash->patch_end - i * PAGE_SIZE, PAGE_SIZE);
+	}			
+	magic = addr = flash->patch_end - PAGE_SIZE * (i-1);
+
+	for (i = 0; i < image_position_adjust.count; i++)
+	{				
+		total_size = (DATA_HEADER +image_position_adjust.size[i]);
+		*(uint16_t *)&data[0] = image_position_adjust.size[i];
+		*(uint32_t *)&data[DATA_LEN] = image_position_adjust.addr[i];
+
+		if (flash_read(flash_device, image_position_adjust.addr[i], &data[DATA_HEADER], 
+			image_position_adjust.size[i]))
+		{
+			printk("flash read err\r");
+			return -DELTA_READING_SOURCE_ERROR;
 		}
-		if (flash_write(flash->device, flash->to_current, to_flash_buf, flash->write_size)) {
+
+		if (flash_write(flash_device, addr, data, total_size)) {
 			printk("flash write err\r");
 			return -DELTA_WRITING_ERROR;
 		}
 
-		flash->to_current += flash->write_size;
-		flash->write_size = 0;
-		flash->flush_write = false;
-		
-		return DELTA_OK;		
+		addr += total_size;
+	}
+
+	delta_init_flash_mem(flash);
+	flash->backup_addr = magic;
+	apply_write_status(flash,STATUS_ADDRESS);
+
+	//apply_backup_write_status(flash);
+	flash_erase(flash_device, BACKUP_STATUS_ADDRESS, PAGE_SIZE*3);			//clean backup information
+
+	if (flash_write(flash_device, SECONDARY_OFFSET + 0x200, &opFlag, sizeof(opFlag))) {
+		return -DELTA_PATCH_HEADER_ERROR;
+	}
+
+	return DELTA_OK;		
+}
+
+
+
+static int traverse_flash_write(void *arg_p,
+					const uint8_t *buf_p,
+					size_t size)
+{
+	struct flash_mem *flash = (struct flash_mem *)arg_p;	
+	if (!flash) {
+		return -DELTA_CASTING_ERROR;
+	}
+#ifdef DELTA_ENABLE_LOG
+	printk("to_flash write size 0x%x\r", size);
+#endif
+	flash->write_size += size;
+	if (flash->write_size >= ERASE_PAGE_SIZE) {
+		flash->erased_addr =  flash->to_current + ERASE_PAGE_SIZE;
+#ifdef DELTA_ENABLE_LOG
+		printk("==== erased_addr 0x%x\r", flash->erased_addr);
+#endif
+		flash->to_current += (off_t) ERASE_PAGE_SIZE;
+		flash->write_size = flash->write_size - ERASE_PAGE_SIZE;
+	}
+
+	return DELTA_OK;		
+}
+
+
+static int apply_last_buffer(void *arg_p)
+{
+	struct flash_mem *flash = (struct flash_mem *)arg_p;
+	uint32_t opFlag = DELTA_OP_APPLY;	
+
+	printk("===== Apply last Flash buffer\r");
+	if (flash_erase(flash_device, flash->to_current, ERASE_PAGE_SIZE)) {
+		return -DELTA_CLEARING_ERROR;
+	}
+	if (flash_write(flash_device, flash->to_current, to_flash_buf, flash->write_size)) {
+		printk("flash write err\r");
+		return -DELTA_WRITING_ERROR;
+	}
+
+	flash->to_current += flash->write_size;
+	flash->write_size = 0;	
+
+	if (flash_write(flash_device, SECONDARY_OFFSET + 0x200, &opFlag, sizeof(opFlag))) {
+		return -DELTA_PATCH_HEADER_ERROR;
+	}			
+
+	return DELTA_OK;		
+}
+
+
+static int write_new_image_to_flash(struct flash_mem *flash)
+{
+	if (flash_erase(flash_device, flash->to_current, ERASE_PAGE_SIZE)) {
+		return -DELTA_CLEARING_ERROR;
+	}
+
+	flash->erased_addr =  flash->to_current + ERASE_PAGE_SIZE;
+
+	if (flash_write(flash_device, flash->to_current, to_flash_buf, ERASE_PAGE_SIZE)) {
+		printk("flash write2 err\r");
+		return -DELTA_WRITING_ERROR;
+	}
+	flash->to_current += (off_t) ERASE_PAGE_SIZE;
+	if (flash->to_current >= flash->to_end) {
+		return -DELTA_SLOT1_OUT_OF_MEMORY;
+	}
+
+	flash->write_size = flash->write_size - ERASE_PAGE_SIZE;			
+	memcpy(to_flash_buf, &to_flash_buf[ERASE_PAGE_SIZE], flash->write_size);
+
+	memcpy(flash->rest_buf,&to_flash_buf[ERASE_PAGE_SIZE], flash->write_size);
+	apply_write_status(flash,STATUS_ADDRESS);	
+#ifdef DELTA_ENABLE_LOG
+	printf("\nErase: from_current=%p\t to_current=%p\t patch_current=%p\t backup_addr=0x%X\t write_size=%d\n",
+			flash->from_current, flash->to_current, flash->patch_current, flash->backup_addr, flash->write_size);
+	print_apply_patch_info(&apply_patch);
+#endif	
+}
+
+static int apply_flash_write(void *arg_p,
+					const uint8_t *buf_p,
+					size_t size)
+{
+	struct flash_mem *flash = (struct flash_mem *)arg_p;	
+	if (!flash) {
+		return -DELTA_CASTING_ERROR;
 	}
 
 	if (size > PAGE_SIZE)
 	{
-		printk("error size\r");
+		printf("error size\r");
 		return -DELTA_WRITING_ERROR;
 	}
-	// if (flash_write_protection_set(flash->device, false)) {
-	// 	return -DELTA_WRITING_ERROR;
-	// }
 
 	memcpy(to_flash_buf + flash->write_size, buf_p, size);  //put the TO content to a temp buffer first
 	flash->write_size += size;
-
+	
 	if (flash->write_size >= ERASE_PAGE_SIZE) {
-		if (flash_erase(flash->device, flash->to_current, ERASE_PAGE_SIZE)) {
-			return -DELTA_CLEARING_ERROR;
-		}
-
-		erased_addr =  flash->to_current + ERASE_PAGE_SIZE;
-
-		if (flash_write(flash->device, flash->to_current, to_flash_buf, ERASE_PAGE_SIZE)) {
-			printk("flash write2 err\r");
-			return -DELTA_WRITING_ERROR;
-		}
-		flash->to_current += (off_t) ERASE_PAGE_SIZE;
-		if (flash->to_current >= flash->to_end) {
-			return -DELTA_SLOT1_OUT_OF_MEMORY;
-		}
-
-		flash->write_size = flash->write_size - ERASE_PAGE_SIZE;			
-		memcpy(to_flash_buf, &to_flash_buf[ERASE_PAGE_SIZE], flash->write_size);		
-		
+		apply_backup_write_status(flash);
+		flush_patch_status(&apply_patch,flash);	
+		write_new_image_to_flash(flash);
 	}
 
 	return DELTA_OK;
@@ -170,17 +245,23 @@ static int delta_flash_write(void *arg_p,
 
 int write_last_buffer(void *arg_p)
 {
-	struct flash_mem *flash;
-	uint8_t temp[4];
+	struct flash_mem *flash = (struct flash_mem *)arg_p;	
+	if (!flash) {
+		return -DELTA_CASTING_ERROR;
+	}
 
-	flash = (struct flash_mem *)arg_p;
-	flash->flush_write = true;
-
-	return delta_flash_write(arg_p, temp, 4);
-	
+	if(0 == flash->backup_addr)
+	{
+		return save_backup_image(arg_p);
+	}
+	else
+	{
+		return apply_last_buffer(arg_p);
+	}
 }
 
-static int delta_flash_from_read(void *arg_p,
+
+static int traverse_flash_from_read(void *arg_p,
 					uint8_t *buf_p,
 					size_t size)
 {
@@ -188,8 +269,52 @@ static int delta_flash_from_read(void *arg_p,
 	static int fatal_err = 0;
 
 	flash = (struct flash_mem *)arg_p;
-
+#ifdef DELTA_ENABLE_LOG
 	printk("from_flash read size: 0x%x off: 0x%x\r", size, flash->from_current);
+#endif
+	if (!flash) {
+		return -DELTA_CASTING_ERROR;
+	}
+	if (size <= 0) {
+		return -DELTA_INVALID_BUF_SIZE;
+	}
+
+	if (fatal_err)
+	{
+		return -DELTA_CASTING_ERROR;
+	}
+
+	if (flash->from_current < flash->erased_addr)
+	{
+	#ifdef DELTA_ENABLE_LOG
+		printk("=== adjust pos %d\r", image_position_adjust.count);
+	#endif
+		image_position_adjust.addr[image_position_adjust.count] = flash->from_current;
+		image_position_adjust.size[image_position_adjust.count] = size;
+		image_position_adjust.count++;
+		if (image_position_adjust.count > IMAGE_ARRAY_SIZE)
+		{
+			fatal_err = -DELTA_WRITING_ERROR;
+			return -DELTA_WRITING_ERROR;				
+		}	
+	}
+
+	flash->from_current += (off_t) size;
+	if (flash->from_current >= flash->from_end) {
+		return -DELTA_READING_SOURCE_ERROR;
+	}
+
+	return DELTA_OK;
+}
+
+static int apply_flash_from_read(void *arg_p,
+					uint8_t *buf_p,
+					size_t size)
+{
+	struct flash_mem *flash;
+	static int fatal_err = 0;
+
+	flash = (struct flash_mem *)arg_p;
 
 	if (!flash) {
 		return -DELTA_CASTING_ERROR;
@@ -203,76 +328,39 @@ static int delta_flash_from_read(void *arg_p,
 		return -DELTA_CASTING_ERROR;
 	}
 
-	if (flash->from_current < erased_addr)
-	{
-		if (!real_apply)
-		{
-			printk("=== adjust pos %d\r", image_position_adjust.count);
-			image_position_adjust.addr[image_position_adjust.count] = flash->from_current;
-			image_position_adjust.size[image_position_adjust.count] = size;
-			image_position_adjust.count++;
-			if (image_position_adjust.count > IMAGE_ARRAY_SIZE)
-			{
-				fatal_err = -DELTA_WRITING_ERROR;
-				return -DELTA_WRITING_ERROR;				
-			}
+	if (flash->from_current < flash->erased_addr)
+	{		
+		uint32_t magic[2];
+		uint8_t data[DATA_HEADER];
+
+		/** read the saved size and address which saved in the backup flash*/
+		if (flash_read(flash_device, flash->backup_addr, data, sizeof(data))) {
+			fatal_err = -DELTA_READING_SOURCE_ERROR;
+			return -DELTA_READING_SOURCE_ERROR;
 		}
-		else
-		{			
-			static uint32_t addr;
-			uint32_t magic[2];
-			uint8_t data[DATA_HEADER];
+		flash->backup_addr += DATA_HEADER;
 
-			if (is_init)
-			{
-				fatal_err = 0;
-				if (flash_read(flash->device, flash->patch_end-8, magic, 8)) {
-					fatal_err = -DELTA_READING_SOURCE_ERROR;
-					return -DELTA_READING_SOURCE_ERROR;
-				}
-				if (magic[0] == MAGIC_VALUE1)
-				{
-					magic[0] = MAGIC_VALUE2;
-					if (flash_write(flash->device, flash->patch_end-8, magic, 4)) {
-						printk("magic2 write err\r");
-						fatal_err = -DELTA_WRITING_ERROR;
-						return -DELTA_WRITING_ERROR;
-					}					
-				}
-				else if (magic[0] != MAGIC_VALUE2)
-				{
-					fatal_err = -DELTA_SEEKING_ERROR;
-					return -DELTA_SEEKING_ERROR;
-				}				
-				addr = magic[1];
-				printk("## image adjust start addr 0x%x\r", addr);	 
-			}
-
-			if (flash_read(flash->device, addr, data, sizeof(data))) {
-				fatal_err = -DELTA_READING_SOURCE_ERROR;
-				return -DELTA_READING_SOURCE_ERROR;
-			}
-			addr += DATA_HEADER;
-
-			if ((*(uint16_t*)&data[0]) != size ||
-					(*(uint32_t*)&data[DATA_LEN]) != flash->from_current)
-			{
-				printk("address or size mismatch!\r");
-				fatal_err = -DELTA_READING_SOURCE_ERROR;
-				return -DELTA_READING_SOURCE_ERROR;
-			}
-
-			if (flash_read(flash->device, addr, buf_p, size)) {
-				fatal_err = -DELTA_READING_SOURCE_ERROR;
-				return -DELTA_READING_SOURCE_ERROR;
-			}
-			addr += size;
-			is_init = false;
-		}		
+		if ((*(uint16_t*)&data[0]) != size || (*(uint32_t*)&data[DATA_LEN]) != flash->from_current)
+		{
+			printf("address or size mismatch!\r");
+			fatal_err = -DELTA_READING_SOURCE_ERROR;
+			return -DELTA_READING_SOURCE_ERROR;
+		}
+	#ifdef DELTA_ENABLE_LOG	
+		printk("from_backup read size: 0x%x offset: 0x%x\r", size, flash->backup_addr);
+	#endif
+		if (flash_read(flash_device, flash->backup_addr, buf_p, size)) {
+			fatal_err = -DELTA_READING_SOURCE_ERROR;
+			return -DELTA_READING_SOURCE_ERROR;
+		}
+		flash->backup_addr += size;	
 	}
 	else
 	{
-		if (flash_read(flash->device, flash->from_current, buf_p, size)) {
+	#ifdef DELTA_ENABLE_LOG
+		printk("from_flash read size: 0x%x offset: 0x%x\r", size, flash->from_current);
+	#endif
+		if (flash_read(flash_device, flash->from_current, buf_p, size)) {
 			return -DELTA_READING_SOURCE_ERROR;
 		}
 	}
@@ -285,6 +373,7 @@ static int delta_flash_from_read(void *arg_p,
 	return DELTA_OK;
 }
 
+
 static int delta_flash_patch_read(void *arg_p,
 					uint8_t *buf_p,
 					size_t size)
@@ -292,8 +381,9 @@ static int delta_flash_patch_read(void *arg_p,
 	struct flash_mem *flash;
 
 	flash = (struct flash_mem *)arg_p;
-	printk("patch_flash read size 0x%x\r", size);
-
+#ifdef DELTA_ENABLE_LOG
+	printk("patch_flash read size 0x%x from %p\r\n\n", size,flash->patch_current);
+#endif
 	if (!flash) {
 		return -DELTA_CASTING_ERROR;
 	}
@@ -301,15 +391,20 @@ static int delta_flash_patch_read(void *arg_p,
 		return -DELTA_INVALID_BUF_SIZE;
 	}
 
-	if (flash_read(flash->device, flash->patch_current, buf_p, size)) {
+	if (flash_read(flash_device, flash->patch_current, buf_p, size)) {
 		return -DELTA_READING_PATCH_ERROR;
 	}
+	
+	return DELTA_OK;
+}
 
+int increase_patch_offset(void *arg_p,off_t size)
+{
+	struct flash_mem *flash = (struct flash_mem *)arg_p;
 	flash->patch_current += (off_t) size;
 	if (flash->patch_current >= flash->patch_end) {
 		return -DELTA_READING_PATCH_ERROR;
 	}
-
 	return DELTA_OK;
 }
 
@@ -318,14 +413,14 @@ static int delta_flash_seek(void *arg_p, int offset)
 	struct flash_mem *flash;
 
 	flash = (struct flash_mem *)arg_p;
-
+#ifdef DELTA_ENABLE_LOG
 	printk("from_flash seek offset %d\r", offset);
+#endif
 	if (!flash) {
 		return -DELTA_CASTING_ERROR;
 	}
 
 	flash->from_current += offset;
-
 	if (flash->from_current >= flash->from_end) {
 		return -DELTA_SEEKING_ERROR;
 	}
@@ -333,44 +428,21 @@ static int delta_flash_seek(void *arg_p, int offset)
 	return DELTA_OK;
 }
 
-/*
- *  INIT
- */
 
-static int delta_init_flash_mem(struct flash_mem *flash)
-{
-	if (!flash) {
-		return -DELTA_NO_FLASH_FOUND;
-	}
 
-	flash->from_current = PRIMARY_OFFSET + PAGE_SIZE;
-	flash->from_end = flash->from_current + PRIMARY_SIZE - PAGE_SIZE;
 
-	flash->to_current = PRIMARY_OFFSET;
-	flash->to_end = flash->to_current + PRIMARY_SIZE - PAGE_SIZE;
-
-	erased_addr = PRIMARY_OFFSET;
-
-	flash->patch_current = SECONDARY_OFFSET + 0x200 + HEADER_SIZE;
-	flash->patch_end = flash->patch_current + SECONDARY_SIZE - HEADER_SIZE - 0x200 - PAGE_SIZE;
-
-	flash->write_size = 0;
-	flash->flush_write = false;
-
-	image_position_adjust.count = 0;
-	is_init = true;
-
-	printf("\nfrom_current=0x%X\t size=0x%X\t to_current=0x%X\t size=0x%X\t patch_current=0x%X\t size=0x%X\n",
-		flash->from_current,PRIMARY_SIZE,flash->to_current,SECONDARY_SIZE,flash->patch_current,STORAGE_SIZE);
-	
-	return DELTA_OK;
-}
-
-static int delta_init(struct flash_mem *flash)
+static int delta_traverse_init(struct flash_mem *flash,uint32_t patch_size,struct detools_apply_patch_t *apply_patch)
 {
 	int ret;
-
 	ret = delta_init_flash_mem(flash);
+	ret += detools_apply_patch_init(apply_patch,
+                                   traverse_flash_from_read,
+                                   delta_flash_seek,
+                                   patch_size,
+                                   traverse_flash_write,
+                                   flash);
+
+	
 	if (ret) {
 		return ret;
 	}
@@ -378,91 +450,229 @@ static int delta_init(struct flash_mem *flash)
 	return DELTA_OK;
 }
 
-bool enter_delta_dfu(struct flash_mem *flash)
+static int flush_patch_status(struct detools_apply_patch_t *self_p,struct flash_mem *flash)
 {
-	int ret;
-
-	ret = delta_read_patch_header(flash,&patch_size);
-	if (ret < 0) {		
-		return false;
-	} else if (patch_size > 0) {
-		return true;
-	}		
+	flash->state = self_p->state;
+	flash->patch_offset = self_p->patch_offset;
+	flash->to_offset = self_p->to_offset;
+	flash->from_offset = self_p->from_offset;
+	flash->chunk_size = self_p->chunk_size;
+	flash->chunk_offset = self_p->chunk.offset;
+	flash->last_chunk_size =  self_p->chunk.size;
+	flash->size.is_signed = self_p->patch_reader.size.is_signed;
+	flash->size.offset = self_p->patch_reader.size.offset;
+	flash->size.state = self_p->patch_reader.size.state;
+	flash->size.value = self_p->patch_reader.size.value;
+	flash->compression.heatshrink = self_p->patch_reader.compression.heatshrink;
 }
 
-/*
- *  PUBLIC FUNCTIONS
- */
-
-int delta_check_and_apply(struct flash_mem *flash)
+static int init_patch_header(struct detools_apply_patch_t *self_p,
+                    const uint8_t *patch_p)
 {
-	int ret;
+    int res;
+	struct flash_mem *flash = (struct flash_mem *)(self_p->arg_p);
+    //self_p->patch_offset += 0x200;
+    self_p->chunk.buf_p = patch_p;
+    self_p->chunk.size = 0x200;
+    self_p->chunk.offset = 0;
+	restore_apply_patch_header(self_p);
 
-	ret = delta_read_patch_header(flash,&patch_size);
-	printf("##patch_size = %d\n", patch_size);
-#if 1
-	if (ret < 0) {
-		printf("ret=%d	read patch file error, exit delta update process!!!\n", ret);
-		return ret;
-	} else if (patch_size > 0) {
+    self_p->state = flash->state;
+	self_p->patch_offset =  flash->patch_offset;
+	self_p->to_offset = flash->to_offset;
+	self_p->from_offset = flash->from_offset;
+	self_p->chunk_size = flash->chunk_size;
+	self_p->patch_reader.size.state = flash->size.state;
+	self_p->patch_reader.size.offset = flash->size.offset;
+	self_p->patch_reader.size.value = flash->size.value;
+	self_p->patch_reader.size.is_signed = flash->size.is_signed;
+	self_p->patch_reader.compression.heatshrink = flash->compression.heatshrink;
+	self_p->chunk.size = flash->last_chunk_size;
+	self_p->chunk.offset = flash->chunk_offset;
+	if (flash->write_size >= ERASE_PAGE_SIZE)
+	{
+		write_new_image_to_flash(flash);
+	}
 
-		ret = delta_init(flash);
-		if (ret) {
-			return ret;
+#ifdef DELTA_ENABLE_LOG
+	printk("Init patch header: reader:state=%d value=%d offset=%d issigned=%d heatshrink: window_sz2=%d lookahead_sz2=%d\r"
+			 "decoder:head_index=%d state=%d output_count=%d output_index=%d current_byte=%d bit_index=%d\r\n",
+			self_p->patch_reader.size.state,self_p->patch_reader.size.value,self_p->patch_reader.size.offset,self_p->patch_reader.size.is_signed,	
+			self_p->patch_reader.compression.heatshrink.window_sz2,self_p->patch_reader.compression.heatshrink.lookahead_sz2,
+			self_p->patch_reader.compression.heatshrink.decoder.head_index,self_p->patch_reader.compression.heatshrink.decoder.state,
+			self_p->patch_reader.compression.heatshrink.decoder.output_count,self_p->patch_reader.compression.heatshrink.decoder.output_index,
+			self_p->patch_reader.compression.heatshrink.decoder.current_byte,self_p->patch_reader.compression.heatshrink.decoder.bit_index);
+#endif
+    // if (res < 0) {
+    //     self_p->state = detools_apply_patch_state_failed_t;
+    // }
+    return (res);
+}
+
+int delta_apply_init(struct flash_mem *flash,uint32_t patch_size,struct detools_apply_patch_t *apply_patch)
+{
+	int ret = -1;
+	uint8_t chunk[512];
+	off_t start_addr = SECONDARY_OFFSET + 0x200 + HEADER_SIZE;
+
+	ret = detools_apply_patch_init(apply_patch,
+                                   apply_flash_from_read,
+                                   delta_flash_seek,
+                                   patch_size,
+                                   apply_flash_write,
+                                   flash);
+	if(flash->patch_current > start_addr)
+	{
+		//printk("Init apply reader!!!!!!!!!!!!!!!!!!!!!!!!!!!!\r\n\r\n");
+		if (flash_read(flash_device, start_addr, chunk, sizeof(chunk))) {
+			return -DELTA_READING_PATCH_ERROR;
 		}
-		ret = detools_apply_patch_callbacks(delta_flash_from_read,
-											delta_flash_seek,
-											delta_flash_patch_read,
-											(size_t) patch_size,
-											delta_flash_write,
-											flash);
-		if (ret <= 0) {
-			return ret;
-		}
-		//k_msleep(1000);		//for print debug message, added by Noy
-		/** below code should be effect when release, now just for test */
-		// if (boot_request_upgrade(BOOT_UPGRADE_PERMANENT)) {
-		// return -1;
-		// }
-		// sys_reboot(SYS_REBOOT_COLD);
+		ret = init_patch_header(apply_patch,chunk);
 	}
 	
-#endif
-
-	return DELTA_OK;
+	return ret;
 }
 
-int delta_read_patch_header(struct flash_mem *flash, uint32_t *size)
+
+int traverse_delta_file(struct flash_mem *flash, struct detools_apply_patch_t *apply_patch)
+{
+	int ret;
+	
+	ret = delta_traverse_init(flash,patch_size,apply_patch);
+	if (ret) {
+		return ret;
+	}
+#ifdef DELTA_ENABLE_LOG
+	printf("\nTraverse: from_current=%p\t size=0x%X\t to_current=%p\t size=0x%X\t patch_current=%p\t patch_end=%p\t backup_addr=0x%X\n",
+		flash->from_current,PRIMARY_SIZE,flash->to_current,SECONDARY_SIZE,flash->patch_current,flash->patch_end, flash->backup_addr);
+#endif
+	ret = apply_patch_process(apply_patch, delta_flash_patch_read, patch_size, 0, flash);
+	
+	return ret;
+}
+
+
+int delta_check_and_apply(struct flash_mem *flash, struct detools_apply_patch_t *apply_patch)
+{
+	int ret;
+
+	size_t patch_offset = flash->patch_current - (SECONDARY_OFFSET + 0x200 + HEADER_SIZE);
+	ret = apply_patch_process(apply_patch, delta_flash_patch_read, patch_size, patch_offset, flash);
+
+	return ret;
+}
+
+int delta_read_patch_header(struct flash_mem *flash, uint32_t *size, uint8_t *op)
 {
 	uint32_t new_patch, reset_msg, patch_header[2];
-	// static struct flash_pages_info page_info;
 
 	new_patch = 0x5057454E; // ASCII for "NEWP" signaling new patch
 	reset_msg = 0x0U; // reset "NEWP"
 
-	/* For tests purposes use page (in primary_flash = 4 kB) */
-	// flash_get_page_info_by_offs(flash->device, STORAGE_OFFSET,&page_info);
-	// printf("start_offset=%0X\t storage_size=%d\t size=%d\t index=%d\n",page_info.start_offset, STORAGE_SIZE, page_info.size, page_info.index);
-
-	if (flash_read(flash->device, SECONDARY_OFFSET + 0x200, patch_header, sizeof(patch_header))) {
+	if (flash_read(flash_device, SECONDARY_OFFSET + 0x200, patch_header, sizeof(patch_header))) {
 		return -DELTA_PATCH_HEADER_ERROR;
 	}
+#ifdef DELTA_ENABLE_LOG
 	printk("read_data[0]=%0X\t read_data[1]=%0X\r\n", patch_header[0], patch_header[1]);
-	
-	if (new_patch!=patch_header[0]) {
-		*size = 0;
-		return -DELTA_PATCH_HEADER_ERROR;
+#endif
+	if (new_patch == patch_header[0]) 
+	{
+		*op = DELTA_OP_TRAVERSE;
+	}
+	else if(patch_header[0] == DELTA_OP_TRAVERSE)
+	{
+		*op = DELTA_OP_APPLY;
+	}
+	else if(patch_header[0] == DELTA_OP_APPLY)
+	{
+		*op = DELTA_OP_NONE;
 	}
 
 	*size = patch_header[1];
-	/** just for test */
-	if (real_apply)
-	{
-		if (flash_write(flash->device, SECONDARY_OFFSET + 0x200, &reset_msg, sizeof(reset_msg))) {
-			return -DELTA_PATCH_HEADER_ERROR;
-		}
+
+	return DELTA_OK;
+}
+
+
+int apply_backup_write_status(struct flash_mem *flash_mem)
+{
+	struct bak_flash_mem bak_flash;
+	uint8_t rest_count = flash_mem->write_size - ERASE_PAGE_SIZE;
+
+	bak_flash.flash = *flash_mem;
+	memcpy(bak_flash.buffer, to_flash_buf, ERASE_PAGE_SIZE);		
+	memcpy(bak_flash.flash.rest_buf, &to_flash_buf[ERASE_PAGE_SIZE], rest_count);
+	flush_patch_status(&apply_patch,&(bak_flash.flash));
+	//printk("1111111\r");
+	flash_erase(flash_device, BACKUP_STATUS_ADDRESS, PAGE_SIZE*3);
+	if (flash_write(flash_device, BACKUP_STATUS_ADDRESS, &bak_flash, sizeof(struct bak_flash_mem))) {
+		printk("magic2 write err\r");
+		return -DELTA_WRITING_ERROR;
+	}
+#ifdef DELTA_ENABLE_LOG
+	printk("backup status save success!!!\r\n");
+#endif
+	return DELTA_OK;
+}
+
+
+int apply_write_status(struct flash_mem *flash,off_t addr)
+{
+	//printk("1111111\r");
+	flash_erase(flash_device, addr, PAGE_SIZE);
+	if (flash_write(flash_device, addr, flash, sizeof(struct flash_mem))) {
+		printk("magic1 write err\r");
+		return -DELTA_WRITING_ERROR;
+	}
+	//printk("222222\r");
+	return DELTA_OK;
+}
+
+
+int apply_read_status(struct flash_mem *flash)
+{	
+	struct bak_flash_mem bak_flash;
+	//printf("STATUS_ADDRESS = %p\r\n",STATUS_ADDRESS);
+	if (flash_read(flash_device, STATUS_ADDRESS, flash, sizeof(struct flash_mem))) {
+		printk("magic1 read err\r");
+		return -DELTA_WRITING_ERROR;
 	}
 
+	if (flash_read(flash_device, BACKUP_STATUS_ADDRESS, &bak_flash, sizeof(struct bak_flash_mem))) 
+	{
+			printk("magic1 read err\r");
+			return -DELTA_WRITING_ERROR;
+	}
+
+	/** last save failed, we should read backup data to restore the apply status */
+	if((flash->patch_current == 0xffffffff)	|| 
+		((bak_flash.flash.from_current!=flash->from_current || bak_flash.flash.backup_addr!=flash->backup_addr) && (bak_flash.flash.to_current == flash->to_current)))
+	{
+		printf("Last save failed, we should read backup data to restore the apply status!!!!!!\r\n");
+		
+		*flash = bak_flash.flash;		
+		memcpy(to_flash_buf,bak_flash.buffer,ERASE_PAGE_SIZE);
+		memcpy(&to_flash_buf[ERASE_PAGE_SIZE],bak_flash.flash.rest_buf, MAX_WRITE_UNIT);
+	}
+	else
+	{
+		if(flash->write_size <= MAX_WRITE_UNIT)
+		{
+			memcpy(to_flash_buf, flash->rest_buf, flash->write_size);
+		}
+	}
+#ifdef DELTA_ENABLE_LOG
+	printf("\nApply: from_current=%p to_current=%p patch_current=%p backup_addr=0x%X write_size=%d\r" 
+		"patch_offset=%d to_offset=%d from_offset=%d chunk_size=%d last_chunk_size=%d chunk.offset=%d apply_state=%d\r"
+		"reader:state=%d value=%d offset=%d issigned=%d\r"
+		"decoder:head_index=%d state=%d output_count=%d output_index=%d current_byte=%d bit_index=%d\r\n\n",
+	flash->from_current,flash->to_current,flash->patch_current,flash->backup_addr,flash->write_size,
+	flash->patch_offset,flash->to_offset,flash->from_offset,flash->chunk_size,flash->last_chunk_size,flash->chunk_offset,flash->state,
+	flash->size.state,flash->size.value,flash->size.offset,flash->size.is_signed,
+	flash->compression.heatshrink.decoder.head_index,flash->compression.heatshrink.decoder.state,
+	flash->compression.heatshrink.decoder.output_count,flash->compression.heatshrink.decoder.output_index,
+	flash->compression.heatshrink.decoder.current_byte,flash->compression.heatshrink.decoder.bit_index);
+#endif
 	return DELTA_OK;
 }
 

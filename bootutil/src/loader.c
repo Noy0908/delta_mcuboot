@@ -48,11 +48,7 @@
 #include "bootutil/boot_hooks.h"
 #include "bootutil/mcuboot_status.h"
 
-#ifdef MCUBOOT_DELTA_UPGRADE
-#include "../../zephyr/delta/delta.h"
-#define FLASH_NODEID 	DT_CHOSEN(zephyr_flash_controller)
-extern volatile bool real_apply;
-#endif
+
 
 
 #if defined(CONFIG_SOC_NRF5340_CPUAPP) && defined(PM_CPUNET_B0N_ADDRESS)
@@ -780,6 +776,7 @@ boot_validate_slot(struct boot_loader_state *state, int slot,
         }
     }
 #endif
+
     BOOT_HOOK_CALL_FIH(boot_image_check_hook, fih_int_encode(BOOT_HOOK_REGULAR),
                        fih_rc, BOOT_CURR_IMG(state), slot);
     if (fih_eq(fih_rc, fih_int_encode(BOOT_HOOK_REGULAR)))
@@ -801,7 +798,11 @@ boot_validate_slot(struct boot_loader_state *state, int slot,
                      (slot == BOOT_PRIMARY_SLOT) ? "primary" : "secondary");
         
 #endif
+   // #ifndef MCUBOOT_DELTA_UPGRADE
         fih_rc = fih_int_encode(1);
+    // #else
+    //     fih_rc = FIH_SUCCESS;
+    // #endif
         goto out;
     }
 
@@ -1633,83 +1634,11 @@ static int
 boot_perform_update(struct boot_loader_state *state, struct boot_status *bs)
 {
     int rc;
-    bool delta_mode;
 #ifndef MCUBOOT_OVERWRITE_ONLY
     uint8_t swap_type;
 #endif
 
-    /* At this point there are no aborted swaps. */
-#if defined (MCUBOOT_DELTA_UPGRADE)
-    struct flash_mem flash_pt = {0};
-    uint32_t copy_size;
-    const struct flash_area *fap_pri;
-    uint32_t new_off;
-    uint32_t old_off;    
-
-	flash_pt.device = DEVICE_DT_GET(FLASH_NODEID);
-	if(!flash_pt.device) {
-		return -BOOT_EFLASH;
-	}
-    delta_mode = enter_delta_dfu(&flash_pt);
-    if (delta_mode)
-    {
-        #if 1
-        //move the primary image up for 1 slot
-        rc = boot_read_image_size(state, BOOT_PRIMARY_SLOT, &copy_size);
-        assert (rc == 0);
-        printk("Time: %d\t === image size 0x%x\r", k_uptime_get_32(),copy_size);
-        rc = flash_area_open(FLASH_AREA_IMAGE_PRIMARY(image_index), &fap_pri);
-        assert (rc == 0);
-        new_off = (copy_size/PAGE_SIZE + 1) * PAGE_SIZE;
-        if (copy_size % PAGE_SIZE == 0)
-        {
-            new_off -= PAGE_SIZE;
-        }
-        while (new_off >= PAGE_SIZE)
-        {
-            rc = boot_erase_region(fap_pri, new_off, PAGE_SIZE);
-            assert(rc == 0);
-
-            rc = boot_copy_region(state, fap_pri, fap_pri, new_off-PAGE_SIZE, new_off, PAGE_SIZE);
-            assert(rc == 0);
-
-            new_off -= PAGE_SIZE;
-
-            rc = boot_write_status(state, bs);
-            bs->idx++;
-        }
-
-        flash_area_close(fap_pri);     
-        #else
-        printk("Time: %d\t === start move up primary a page!!!\r\n", k_uptime_get_32());
-        rc = boot_swap_image(state, bs);
-        assert(rc == 0);
-        #endif   
-    }
-    else
-    {
-        return 0;
-    }
-
-    BOOT_LOG_INF("\r\nTime: %d\t Delta DFU start: apply patch to primary slot......\r\n",k_uptime_get_32());
-
-    //call delta_check_and_apply twice
-    //get the image adjust locations for the first time
-    real_apply = false;
-    rc = delta_check_and_apply(&flash_pt);
-	if (rc == 0) {
-        //apply the patch in a true way for the second time
-        real_apply = true;
-        rc = delta_check_and_apply(&flash_pt);
-        if (rc) {
-            BOOT_LOG_INF("## Delta DFU failed %d", rc);
-        }       
-    }
-    else
-    {
-        BOOT_LOG_INF("## Iterate the image adjust locations failed %d", rc);
-    }
-#elif defined(MCUBOOT_OVERWRITE_ONLY)
+#if defined(MCUBOOT_OVERWRITE_ONLY)
     rc = boot_copy_image(state, bs);
 #elif defined(MCUBOOT_BOOTSTRAP)
     /* Check if the image update was triggered by a bad image in the
@@ -1950,7 +1879,8 @@ boot_prepare_image_for_update(struct boot_loader_state *state,
 #endif
 
 
-#ifdef MCUBOOT_SWAP_USING_MOVE
+//#ifdef MCUBOOT_SWAP_USING_MOVE
+#if (defined MCUBOOT_SWAP_USING_MOVE) && (!defined MCUBOOT_DELTA_UPGRADE)
         /*
          * Must re-read image headers because the boot status might
          * have been updated in the previous function call.
@@ -2220,7 +2150,7 @@ context_boot_go(struct boot_loader_state *state, struct boot_rsp *rsp)
 
         /* Set the previously determined swap type */
         bs.swap_type = BOOT_SWAP_TYPE(state);
-
+        printk("swap_type = %d\r\n",bs.swap_type);
         switch (BOOT_SWAP_TYPE(state)) {
         case BOOT_SWAP_TYPE_NONE:
             break;

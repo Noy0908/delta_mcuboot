@@ -25,11 +25,28 @@
 #define STORAGE_OFFSET 		FLASH_AREA_OFFSET(image_1)
 #define STORAGE_SIZE 		FLASH_AREA_SIZE(image_1)
 
+#define STATUS_ADDRESS				0xFE000			//flash address to save apply status
+#define BACKUP_STATUS_ADDRESS		0xFB000			//backup address to save apply status ,save it before erase
+
 /* PATCH HEADER SIZE */
 #define HEADER_SIZE 0x8
 
+#define DELTA_OP_NONE				0x00
+#define DELTA_OP_TRAVERSE			0x0E
+#define DELTA_OP_APPLY				0x02
+
 /* PAGE SIZE */
 #define PAGE_SIZE 0x1000
+
+#define DATA_LEN 2
+#define ADDR_LEN 4
+#define DATA_HEADER (DATA_LEN+ADDR_LEN)
+
+#define MAGIC_VALUE3 0x20221500
+#define ERASE_PAGE_SIZE (PAGE_SIZE*2)
+
+#define IMAGE_ARRAY_SIZE PAGE_SIZE
+#define MAX_WRITE_UNIT 128  //relating to to/from array of process_data in detools.c
 
 /* Error codes. */
 #define DELTA_OK                                          0
@@ -50,15 +67,40 @@
  * - "To" refers to the area where the target image is to be placed.
  */
 struct flash_mem {
-	const struct device *device;
+	/**Below are the apply patch status information*/
+	size_t patch_offset;
+    size_t to_offset;
+    int from_offset;
+    size_t chunk_size;
+	size_t last_chunk_size;
+	size_t chunk_offset;
+	struct {
+        int state;
+        int value;
+        int offset;
+        bool is_signed;
+    } size;
+	union {
+        struct detools_apply_patch_patch_reader_heatshrink_t heatshrink;
+    } compression;
+	enum detools_apply_patch_state_t state;
+	uint8_t rest_buf[MAX_WRITE_UNIT];
+	//apply memory status
 	off_t patch_current;
 	off_t patch_end;
 	off_t from_current;
 	off_t from_end;
 	off_t to_current;
 	off_t to_end;
+	off_t erased_addr;		//the erase address of primary slot
+	off_t backup_addr;		//save the old image which will be used after erased
 	size_t write_size;
-	bool flush_write;
+};
+
+
+struct bak_flash_mem {
+	uint8_t buffer[ERASE_PAGE_SIZE];
+	struct flash_mem flash;
 };
 
 /* FUNCTION DECLARATIONS */
@@ -73,8 +115,10 @@ struct flash_mem {
  * @return zero(0) if no patch or a negative error
  * code.
  */
-int delta_check_and_apply(struct flash_mem *flash);
-bool enter_delta_dfu(struct flash_mem *flash);
+int traverse_delta_file(struct flash_mem *flash, struct detools_apply_patch_t *apply_patch);
+int delta_apply_init(struct flash_mem *flash,uint32_t patch_size,struct detools_apply_patch_t *apply_patch);
+int delta_check_and_apply(struct flash_mem *flash, struct detools_apply_patch_t *apply_patch);
+
 /**
  * Functiong for reading the metadata from the patch and
  * changing the header to mark that the patch has been
@@ -86,7 +130,15 @@ bool enter_delta_dfu(struct flash_mem *flash);
  * representing an error, or a positive value (0<)
  * representing the patch size.
  */
-int delta_read_patch_header(struct flash_mem *flash, uint32_t *size);
+int delta_read_patch_header(struct flash_mem *flash, uint32_t *size, uint8_t *op);
+
+int apply_write_status(struct flash_mem *flash,off_t addr);
+
+int apply_backup_write_status(struct flash_mem *flash_mem);
+
+int apply_read_status(struct flash_mem *flash);
+
+int increase_patch_offset(void *arg_p,off_t size);
 
 /**
  * Get the error string for given error code.

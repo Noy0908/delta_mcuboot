@@ -44,6 +44,8 @@
 #include <stdio.h>
 #include <stdbool.h>
 
+//#define DELTA_ENABLE_LOG			        1
+
 #define DETOOLS_VERSION                  "0.47.0"
 
 /* Error codes. */
@@ -306,6 +308,14 @@ int detools_apply_patch_init(struct detools_apply_patch_t *self_p,
                              detools_write_t to_write,
                              void *arg_p);
 
+
+
+int apply_patch_process(struct detools_apply_patch_t *apply_patch_p,
+                             detools_read_t patch_read,
+                             size_t patch_size,
+                             size_t offset,
+                             void *arg_p);                            
+
 /**
  * Dump given apply patch object state. Call
  * `detools_apply_patch_restore()` to restore an apply patch object to
@@ -344,6 +354,7 @@ int detools_apply_patch_restore(struct detools_apply_patch_t *self_p,
  * @return The current to stream offset.
  */
 size_t detools_apply_patch_get_to_offset(struct detools_apply_patch_t *self_p);
+int restore_apply_patch_header(struct detools_apply_patch_t *self_p);
 
 /**
  * Get the current patch stream offset. Often used to restore the

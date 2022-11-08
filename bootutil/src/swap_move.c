@@ -25,8 +25,16 @@
 #include "bootutil_priv.h"
 #include "swap_priv.h"
 #include "bootutil/bootutil_log.h"
-
 #include "mcuboot_config/mcuboot_config.h"
+
+#ifdef MCUBOOT_DELTA_UPGRADE
+#include "../../zephyr/delta/delta.h"
+#define FLASH_NODEID 	DT_CHOSEN(zephyr_flash_controller)
+extern uint32_t patch_size; 
+extern const struct device *flash_device;
+extern  uint8_t opFlag ;
+extern struct detools_apply_patch_t apply_patch;
+#endif
 
 BOOT_LOG_MODULE_DECLARE(mcuboot);
 
@@ -401,6 +409,24 @@ boot_swap_sectors(int idx, uint32_t sz, struct boot_loader_state *state,
     }
 }
 
+#ifdef MCUBOOT_DELTA_UPGRADE
+
+static void
+boot_apply_sectors(int idx, uint32_t sz, struct boot_loader_state *state,
+        struct boot_status *bs, const struct flash_area *fap_pri,
+        const struct flash_area *fap_sec,struct flash_mem *flash_pt,
+        struct detools_apply_patch_t *apply_patch)
+{
+    int rc = -1;
+    //apply the patch in a true way for the second time
+    rc = delta_check_and_apply(flash_pt,apply_patch);
+    if (rc < 0) {
+        BOOT_LOG_INF("## Delta DFU failed %d", rc);
+    }       
+}
+
+#endif
+
 /*
  * When starting a revert the swap status exists in the primary slot, and
  * the status in the secondary slot is erased. To start the swap, the status
@@ -523,6 +549,9 @@ swap_run(struct boot_loader_state *state, struct boot_status *bs,
             idx--;
         }
         bs->idx = BOOT_STATUS_IDX_0;
+    #ifdef MCUBOOT_DELTA_UPGRADE
+        bs->op = BOOT_STATUS_OP_APPLY;
+    #endif
     }
 
 #ifndef MCUBOOT_DELTA_UPGRADE
@@ -535,6 +564,50 @@ swap_run(struct boot_loader_state *state, struct boot_status *bs,
         }
         idx++;
     }
+#else
+   
+    //struct detools_apply_patch_t apply_patch;
+    struct flash_mem flash_pt = {0};
+
+    flash_device = DEVICE_DT_GET(FLASH_NODEID);
+	if(!flash_device) {
+        BOOT_LOG_INF("Load flash driver failed!!!\r\n");
+		return;
+	}
+
+	rc = delta_read_patch_header(&flash_pt, &patch_size, &opFlag);
+	printf("##patch_size = %d\t opFlag = %d\n", patch_size, opFlag);
+	if (rc < 0) {
+		printf("ret=%d	read patch file error, exit delta update process!!!\n", rc);
+		return;
+	}
+
+    /** This step try to find the old image pages which will be used after be erased*/
+    if(opFlag == DELTA_OP_TRAVERSE)
+    { 
+        if(traverse_delta_file(&flash_pt, &apply_patch) > 0)
+        {
+            opFlag = DELTA_OP_APPLY;
+        }     
+    }
+    /** Now we start to apply patch file to create new image*/
+    if(opFlag == DELTA_OP_APPLY)
+    {
+        //!!!!!!!!!!!!!need to modify, apply patch should be init before write last pages!!!!!!!!!!!!!!!
+        apply_read_status(&flash_pt); 
+        
+        delta_apply_init(&flash_pt,patch_size,&apply_patch);    
+                 
+        delta_check_and_apply(&flash_pt, &apply_patch);
+        // idx = 1;
+        // while (idx <= g_last_idx) {
+        //     if (idx >= bs->idx) {
+        //        boot_apply_sectors(idx, sector_sz, state, bs, fap_pri, fap_sec,&flash_pt,&apply_patch);
+        //     }
+        //     idx++;
+        // }
+    }
+
 #endif
     flash_area_close(fap_pri);
     flash_area_close(fap_sec);

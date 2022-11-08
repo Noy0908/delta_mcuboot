@@ -43,6 +43,7 @@
 #define MAX(x, y) (((x) > (y)) ? (x) : (y))
 #define DIV_CEIL(n, d) (((n) + (d) - 1) / (d))
 
+
 /*
  * Utility functions.
  */
@@ -402,7 +403,7 @@ static int process_init(struct detools_apply_patch_t *self_p)
     uint8_t byte;
     int res;
     int to_size;
-    // printk("process_init\r");
+
     if (chunk_get(&self_p->chunk, &byte) != 0) {
         return (-DETOOLS_SHORT_HEADER);
     }
@@ -449,7 +450,7 @@ static int process_dfpatch_size(struct detools_apply_patch_t *self_p)
 {
     int res;
     int size;
-    // printk("process_dfpatch_size\r");
+
     res = patch_reader_unpack_size(&self_p->patch_reader, &size);
 
     if (res != 0) {
@@ -494,7 +495,7 @@ static int process_data(struct detools_apply_patch_t *self_p,
     uint8_t to[128];
     size_t to_size;
     uint8_t from[128];
-    // printk("##process_data state %d\r", next_state);
+
     to_size = MIN(sizeof(to), self_p->chunk_size);
 
     if (to_size == 0) {
@@ -539,25 +540,21 @@ static int process_data(struct detools_apply_patch_t *self_p,
 
 static int process_diff_size(struct detools_apply_patch_t *self_p)
 {
-    // printk("process_diff_size\r");
     return (process_size(self_p, detools_apply_patch_state_diff_data_t));
 }
 
 static int process_diff_data(struct detools_apply_patch_t *self_p)
 {
-    // printk("process_diff_data\r");
     return (process_data(self_p, detools_apply_patch_state_extra_size_t));
 }
 
 static int process_extra_size(struct detools_apply_patch_t *self_p)
 {
-    // printk("process_extra_size\r");
     return (process_size(self_p, detools_apply_patch_state_extra_data_t));
 }
 
 static int process_extra_data(struct detools_apply_patch_t *self_p)
 {
-    // printk("process_extra_data\r");
     return (process_data(self_p, detools_apply_patch_state_adjustment_t));
 }
 
@@ -565,9 +562,8 @@ static int process_adjustment(struct detools_apply_patch_t *self_p)
 {
     int res;
     int offset;
-    // printk("process_adjustment\r");
-    res = patch_reader_unpack_size(&self_p->patch_reader, &offset);
 
+    res = patch_reader_unpack_size(&self_p->patch_reader, &offset);
     if (res != 0) {
         return (res);
     }
@@ -592,7 +588,9 @@ static int process_adjustment(struct detools_apply_patch_t *self_p)
 static int apply_patch_process_once(struct detools_apply_patch_t *self_p)
 {
     int res;
-    // printk("apply_patch_process_once\r");
+#ifdef DELTA_ENABLE_LOG			
+    printk("apply_patch_process_once, state = %d chunk: size=%d offset=%d\r",self_p->state,self_p->chunk.size,self_p->chunk.offset);
+#endif
     switch (self_p->state) {
 
     case detools_apply_patch_state_init_t:
@@ -670,6 +668,18 @@ static int apply_patch_common_finalize(
 
     return (res);
 }
+
+
+int restore_apply_patch_header(struct detools_apply_patch_t *self_p)
+{
+    int res;
+    res = process_init(self_p);
+    //res += process_dfpatch_size(self_p);
+    // res += process_diff_size(self_p);
+
+    return (res);
+}
+
 
 int detools_apply_patch_init(struct detools_apply_patch_t *self_p,
                              detools_read_t from_read,
@@ -769,8 +779,11 @@ int detools_apply_patch_process(struct detools_apply_patch_t *self_p,
     res = 0;
     self_p->patch_offset += size;
     self_p->chunk.buf_p = patch_p;
-    self_p->chunk.size = size;
-    self_p->chunk.offset = 0;
+    if(chunk_available(&self_p->chunk) == false)
+    {
+        self_p->chunk.size = size;
+        self_p->chunk.offset = 0;
+    }
 
     while (chunk_available(&self_p->chunk) && (res >= 0)) {
         res = apply_patch_process_once(self_p);
@@ -812,22 +825,28 @@ int detools_apply_patch_finalize(struct detools_apply_patch_t *self_p)
  * Callback functionality.
  */
 
-static int callbacks_process(struct detools_apply_patch_t *apply_patch_p,
+
+
+
+int apply_patch_process(struct detools_apply_patch_t *apply_patch_p,
                              detools_read_t patch_read,
                              size_t patch_size,
+                             size_t offset,
                              void *arg_p)
 {
-    int res;
-    size_t patch_offset;
+    int res = 0;
     size_t chunk_size;
     uint8_t chunk[512];
-
-    res = 0;
-    patch_offset = 0;
-    printk("patch size 0x%x\r", patch_size);
+    size_t patch_offset = offset;
+    
+    printf("patch size 0x%x\t patch_offset=0x%X\r\n", patch_size, patch_offset);
+    if(patch_offset > 0)
+    {
+        apply_patch_p->patch_offset -= apply_patch_p->chunk.size;       //last read chunk size
+    }
+    
     while ((patch_offset < patch_size) && (res == 0)) {
         chunk_size = MIN(patch_size - patch_offset, 512);
-        printk("apply chunk size 0x%x\r", chunk_size);
         res = patch_read(arg_p, &chunk[0], chunk_size);
 
         if (res == 0) {
@@ -835,11 +854,13 @@ static int callbacks_process(struct detools_apply_patch_t *apply_patch_p,
                                               &chunk[0],
                                               chunk_size);
             patch_offset += chunk_size;
-            // printf("patch_offset=%d\t patch_size=%d\t progress = %d%%\n", patch_offset,patch_size,patch_offset*100/patch_size);
+            increase_patch_offset(arg_p, chunk_size);
+            printf("------------patch_offset=%d\t patch_size=%d\t progress = %d%%\n", patch_offset,patch_size,patch_offset*100/patch_size);
         } else {
             res = -DETOOLS_IO_FAILED;
         }
     }
+    //printk("apply result = %d\r\n", res);
 
     if (res == 0) {
         res = detools_apply_patch_finalize(apply_patch_p);
@@ -850,29 +871,7 @@ static int callbacks_process(struct detools_apply_patch_t *apply_patch_p,
     return (res);
 }
 
-int detools_apply_patch_callbacks(detools_read_t from_read,
-                                  detools_seek_t from_seek,
-                                  detools_read_t patch_read,
-                                  size_t patch_size,
-                                  detools_write_t to_write,
-                                  void *arg_p)
-{
-    int res;
-    struct detools_apply_patch_t apply_patch;
 
-    res = detools_apply_patch_init(&apply_patch,
-                                   from_read,
-                                   from_seek,
-                                   patch_size,
-                                   to_write,
-                                   arg_p);
-
-    if (res != 0) {
-        return (res);
-    }
-
-    return (callbacks_process(&apply_patch, patch_read, patch_size, arg_p));
-}
 
 const char *detools_error_as_string(int error)
 {

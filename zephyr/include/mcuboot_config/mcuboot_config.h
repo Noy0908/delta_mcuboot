@@ -63,7 +63,7 @@
 
 #ifdef CONFIG_BOOT_UPGRADE_APP_DELTA
 #define MCUBOOT_DELTA_UPGRADE   1
-//#define MCUBOOT_SWAP_USING_MOVE 1       //added by Noy
+#define MCUBOOT_SWAP_USING_MOVE 1       //added by Noy
 #endif
 
 #ifdef CONFIG_SINGLE_APPLICATION_SLOT
