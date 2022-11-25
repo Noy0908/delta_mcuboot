@@ -32,7 +32,7 @@
 
 #include <stdlib.h>
 #include "detools.h"
-
+#include "../delta/delta.h"
 /* Patch types. */
 #define PATCH_TYPE_SEQUENTIAL                               0
 
@@ -42,6 +42,8 @@
 #define MIN(x, y) (((x) < (y)) ? (x) : (y))
 #define MAX(x, y) (((x) > (y)) ? (x) : (y))
 #define DIV_CEIL(n, d) (((n) + (d) - 1) / (d))
+
+
 
 
 /*
@@ -674,8 +676,6 @@ int restore_apply_patch_header(struct detools_apply_patch_t *self_p)
 {
     int res;
     res = process_init(self_p);
-    //res += process_dfpatch_size(self_p);
-    // res += process_diff_size(self_p);
 
     return (res);
 }
@@ -796,7 +796,6 @@ int detools_apply_patch_process(struct detools_apply_patch_t *self_p,
     return (res);
 }
 
-extern int write_last_buffer(void *arg_p);
 
 int detools_apply_patch_finalize(struct detools_apply_patch_t *self_p)
 {
@@ -824,10 +823,6 @@ int detools_apply_patch_finalize(struct detools_apply_patch_t *self_p)
 /*
  * Callback functionality.
  */
-
-
-
-
 int apply_patch_process(struct detools_apply_patch_t *apply_patch_p,
                              detools_read_t patch_read,
                              size_t patch_size,
@@ -839,7 +834,7 @@ int apply_patch_process(struct detools_apply_patch_t *apply_patch_p,
     uint8_t chunk[512];
     size_t patch_offset = offset;
     
-    printf("patch size 0x%x\t patch_offset=0x%X\r\n", patch_size, patch_offset);
+    //printf("patch size 0x%x\t patch_offset=0x%X\r\n", patch_size, patch_offset);
     if(patch_offset > 0)
     {
         apply_patch_p->patch_offset -= apply_patch_p->chunk.size;       //last read chunk size

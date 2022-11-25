@@ -85,7 +85,7 @@ struct flash_mem {
     } compression;
 	enum detools_apply_patch_state_t state;
 	uint8_t rest_buf[MAX_WRITE_UNIT];
-	//apply memory status
+	/**apply memory status */
 	off_t patch_current;
 	off_t patch_end;
 	off_t from_current;
@@ -139,6 +139,9 @@ int apply_backup_write_status(struct flash_mem *flash_mem);
 int apply_read_status(struct flash_mem *flash);
 
 int increase_patch_offset(void *arg_p,off_t size);
+
+int write_last_buffer(void *arg_p);
+
 
 /**
  * Get the error string for given error code.

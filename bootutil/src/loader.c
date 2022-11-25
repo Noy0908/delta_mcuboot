@@ -985,7 +985,6 @@ boot_validated_swap_type(struct boot_loader_state *state,
             }
         } else {
             upgrade_valid = true;
-            printk("Congratulations, Secondary image file is validata!!!\r\n");
         }
 
 #if defined(CONFIG_SOC_NRF5340_CPUAPP) && defined(PM_CPUNET_B0N_ADDRESS)

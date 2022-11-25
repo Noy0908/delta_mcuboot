@@ -409,23 +409,6 @@ boot_swap_sectors(int idx, uint32_t sz, struct boot_loader_state *state,
     }
 }
 
-#ifdef MCUBOOT_DELTA_UPGRADE
-
-static void
-boot_apply_sectors(int idx, uint32_t sz, struct boot_loader_state *state,
-        struct boot_status *bs, const struct flash_area *fap_pri,
-        const struct flash_area *fap_sec,struct flash_mem *flash_pt,
-        struct detools_apply_patch_t *apply_patch)
-{
-    int rc = -1;
-    //apply the patch in a true way for the second time
-    rc = delta_check_and_apply(flash_pt,apply_patch);
-    if (rc < 0) {
-        BOOT_LOG_INF("## Delta DFU failed %d", rc);
-    }       
-}
-
-#endif
 
 /*
  * When starting a revert the swap status exists in the primary slot, and

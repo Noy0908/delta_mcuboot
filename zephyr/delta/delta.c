@@ -27,8 +27,6 @@ static int flush_patch_status(struct detools_apply_patch_t *self_p,struct flash_
 
 static int delta_init_flash_mem(struct flash_mem *flash)
 {
-	uint32_t magic[2];
-
 	if (!flash) {
 		return -DELTA_NO_FLASH_FOUND;
 	}
@@ -213,6 +211,7 @@ static int write_new_image_to_flash(struct flash_mem *flash)
 			flash->from_current, flash->to_current, flash->patch_current, flash->backup_addr, flash->write_size);
 	print_apply_patch_info(&apply_patch);
 #endif	
+	return DELTA_OK;
 }
 
 static int apply_flash_write(void *arg_p,
@@ -330,7 +329,7 @@ static int apply_flash_from_read(void *arg_p,
 
 	if (flash->from_current < flash->erased_addr)
 	{		
-		uint32_t magic[2];
+		//uint32_t magic[2];
 		uint8_t data[DATA_HEADER];
 
 		/** read the saved size and address which saved in the backup flash*/
@@ -475,7 +474,7 @@ static int init_patch_header(struct detools_apply_patch_t *self_p,
     self_p->chunk.buf_p = patch_p;
     self_p->chunk.size = 0x200;
     self_p->chunk.offset = 0;
-	restore_apply_patch_header(self_p);
+	res = restore_apply_patch_header(self_p);
 
     self_p->state = flash->state;
 	self_p->patch_offset =  flash->patch_offset;
@@ -491,7 +490,7 @@ static int init_patch_header(struct detools_apply_patch_t *self_p,
 	self_p->chunk.offset = flash->chunk_offset;
 	if (flash->write_size >= ERASE_PAGE_SIZE)
 	{
-		write_new_image_to_flash(flash);
+		res = write_new_image_to_flash(flash);
 	}
 
 #ifdef DELTA_ENABLE_LOG
@@ -503,9 +502,9 @@ static int init_patch_header(struct detools_apply_patch_t *self_p,
 			self_p->patch_reader.compression.heatshrink.decoder.output_count,self_p->patch_reader.compression.heatshrink.decoder.output_index,
 			self_p->patch_reader.compression.heatshrink.decoder.current_byte,self_p->patch_reader.compression.heatshrink.decoder.bit_index);
 #endif
-    // if (res < 0) {
-    //     self_p->state = detools_apply_patch_state_failed_t;
-    // }
+    if (res < 0) {
+        self_p->state = detools_apply_patch_state_failed_t;
+    }
     return (res);
 }
 
