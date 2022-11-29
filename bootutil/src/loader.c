@@ -94,6 +94,7 @@ static struct boot_loader_state boot_data;
 #define BUF_SZ 1024
 #endif
 
+
 static int
 boot_read_image_headers(struct boot_loader_state *state, bool require_all,
         struct boot_status *bs)
@@ -782,6 +783,14 @@ boot_validate_slot(struct boot_loader_state *state, int slot,
     if (fih_eq(fih_rc, fih_int_encode(BOOT_HOOK_REGULAR)))
     {
         FIH_CALL(boot_image_check, fih_rc, state, hdr, fap, bs);
+        printf("slot=%d\n",slot);
+        // if(slot == BOOT_PRIMARY_SLOT)
+        // {
+        //     for(int i = 0; i < sizeof(out_hash); i++)
+        //     {
+        //         printf("%02X ",out_hash[i]);
+        //     }
+        // } 
     }
     if (!boot_is_header_valid(hdr, fap) || fih_not_eq(fih_rc, FIH_SUCCESS)) {
         if ((slot != BOOT_PRIMARY_SLOT) || ARE_SLOTS_EQUIVALENT()) {
@@ -1653,7 +1662,7 @@ boot_perform_update(struct boot_loader_state *state, struct boot_status *bs)
         rc = boot_swap_image(state, bs);
     }
 #else
-        rc = boot_swap_image(state, bs);
+    rc = boot_swap_image(state, bs);
 #endif
     assert(rc == 0);
 
@@ -2026,6 +2035,15 @@ boot_update_hw_rollback_protection(struct boot_loader_state *state)
 
     return 0;
 #endif
+}
+
+
+fih_int get_source_hash(struct flash_area *fap,uint8_t *hash_buf)
+{
+    struct image_header hdr;
+    uint8_t tmpbuf[64];
+    flash_area_read(fap, 0, &hdr, sizeof(hdr));
+    return (bootutil_img_validate(NULL, 0, &hdr, fap, tmpbuf, sizeof(tmpbuf),NULL, 0, hash_buf));
 }
 
 fih_int

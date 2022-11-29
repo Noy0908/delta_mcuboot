@@ -34,6 +34,8 @@ extern uint32_t patch_size;
 extern const struct device *flash_device;
 extern  uint8_t opFlag ;
 extern struct detools_apply_patch_t apply_patch;
+
+extern fih_int get_source_hash(struct flash_area *fap,uint8_t *hash_buf);
 #endif
 
 BOOT_LOG_MODULE_DECLARE(mcuboot);
@@ -521,6 +523,36 @@ swap_run(struct boot_loader_state *state, struct boot_status *bs,
     rc = flash_area_open(FLASH_AREA_IMAGE_SECONDARY(image_index), &fap_sec);
     assert (rc == 0);
 
+#ifdef MCUBOOT_DELTA_UPGRADE
+    
+    uint8_t source_hash[32] = {0};
+    fih_int fih_rc = FIH_FAILURE;
+  
+    flash_device = DEVICE_DT_GET(FLASH_NODEID);
+	if(!flash_device) {
+        BOOT_LOG_INF("Load flash driver failed!!!\r\n");
+		return;
+	}
+
+    fih_rc = get_source_hash(fap_pri, source_hash);
+#ifdef DELTA_ENABLE_LOG
+    if (fih_eq(fih_rc, FIH_SUCCESS))
+    {
+        printf("\nsource_hash read from slot 1:\r\n");
+        for(int i = 0; i < sizeof(source_hash); i++)
+        {
+            printf("%02X ",source_hash[i]);
+        }
+    }
+#endif
+	rc = delta_read_patch_header(source_hash, &patch_size, &opFlag);
+	printf("##patch_size = %d\t opFlag = %d\r\n", patch_size, opFlag);
+	if (rc < 0) {
+		printf("ret=%d	read patch file error, exit delta update process!!!\n", rc);
+		return;
+	}
+#endif
+
     fixup_revert(state, bs, fap_sec);
 
     if (bs->op == BOOT_STATUS_OP_MOVE) {
@@ -548,23 +580,7 @@ swap_run(struct boot_loader_state *state, struct boot_status *bs,
         idx++;
     }
 #else
-   
-    //struct detools_apply_patch_t apply_patch;
     struct flash_mem flash_pt = {0};
-
-    flash_device = DEVICE_DT_GET(FLASH_NODEID);
-	if(!flash_device) {
-        BOOT_LOG_INF("Load flash driver failed!!!\r\n");
-		return;
-	}
-
-	rc = delta_read_patch_header(&flash_pt, &patch_size, &opFlag);
-	printf("##patch_size = %d\t opFlag = %d\n", patch_size, opFlag);
-	if (rc < 0) {
-		printf("ret=%d	read patch file error, exit delta update process!!!\n", rc);
-		return;
-	}
-
     /** This step try to find the old image pages which will be used after be erased*/
     if(opFlag == DELTA_OP_TRAVERSE)
     { 
@@ -576,19 +592,11 @@ swap_run(struct boot_loader_state *state, struct boot_status *bs,
     /** Now we start to apply patch file to create new image*/
     if(opFlag == DELTA_OP_APPLY)
     {
-        //!!!!!!!!!!!!!need to modify, apply patch should be init before write last pages!!!!!!!!!!!!!!!
         apply_read_status(&flash_pt); 
         
         delta_apply_init(&flash_pt,patch_size,&apply_patch);    
                  
         delta_check_and_apply(&flash_pt, &apply_patch);
-        // idx = 1;
-        // while (idx <= g_last_idx) {
-        //     if (idx >= bs->idx) {
-        //        boot_apply_sectors(idx, sector_sz, state, bs, fap_pri, fap_sec,&flash_pt,&apply_patch);
-        //     }
-        //     idx++;
-        // }
     }
 
 #endif

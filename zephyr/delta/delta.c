@@ -13,6 +13,7 @@ static uint8_t to_flash_buf[ERASE_PAGE_SIZE + MAX_WRITE_UNIT];
 uint8_t opFlag = 0;	
 struct detools_apply_patch_t apply_patch;
 
+
 struct
 {
 	int addr[IMAGE_ARRAY_SIZE];
@@ -561,33 +562,64 @@ int delta_check_and_apply(struct flash_mem *flash, struct detools_apply_patch_t 
 	return ret;
 }
 
-int delta_read_patch_header(struct flash_mem *flash, uint32_t *size, uint8_t *op)
+int delta_read_patch_header(uint8_t *hash_buf, uint32_t *size, uint8_t *op)
 {
-	uint32_t new_patch, reset_msg, patch_header[2];
+	uint32_t new_patch = 0x5057454E;  	// ASCII for "NEWP" signaling new patch
+	struct patch_header
+	{
+		uint32_t flag;
+		uint32_t length;
+		uint8_t hash_buf[32]
+	} header_st;
 
-	new_patch = 0x5057454E; // ASCII for "NEWP" signaling new patch
-	reset_msg = 0x0U; // reset "NEWP"
+	//reset_msg = 0x0U; // reset "NEWP"
 
-	if (flash_read(flash_device, SECONDARY_OFFSET + 0x200, patch_header, sizeof(patch_header))) {
+	if (flash_read(flash_device, SECONDARY_OFFSET + 0x200, &header_st, sizeof(header_st))) {
 		return -DELTA_PATCH_HEADER_ERROR;
 	}
 #ifdef DELTA_ENABLE_LOG
-	printk("read_data[0]=%0X\t read_data[1]=%0X\r\n", patch_header[0], patch_header[1]);
+	printf("flag=%0X\t length=%0X\r\n", header_st.flag, header_st.length);
+	for(int i = 0; i < sizeof(header_st.hash_buf); i++)
+	{
+		printf("%02X ",header_st.hash_buf[i]);
+	}
 #endif
-	if (new_patch == patch_header[0]) 
+
+	if(new_patch == header_st.flag)
+	{
+		if(0 == memcmp(header_st.hash_buf, hash_buf, sizeof(header_st.hash_buf)))
+		{
+			*op = DELTA_OP_TRAVERSE;
+
+			uint32_t opFlag = DELTA_OP_START;
+			if (flash_write(flash_device, SECONDARY_OFFSET + 0x200, &opFlag, sizeof(opFlag))) {
+				return -DELTA_PATCH_HEADER_ERROR;
+			}
+
+		#ifndef DELTA_ENABLE_LOG
+			printf("source hash is matched, now start delta upgrade!!!\r\n");
+		#endif
+		}
+		else
+		{
+			printk("\r\nsource file hash didn't match, exit upgrade!!!\r\n");
+			return -DELTA_SOURCE_HASH_ERROR;
+		}
+	}
+	else if(header_st.flag == DELTA_OP_START)
 	{
 		*op = DELTA_OP_TRAVERSE;
 	}
-	else if(patch_header[0] == DELTA_OP_TRAVERSE)
+	else if(header_st.flag == DELTA_OP_TRAVERSE)
 	{
 		*op = DELTA_OP_APPLY;
 	}
-	else if(patch_header[0] == DELTA_OP_APPLY)
+	else if(header_st.flag == DELTA_OP_APPLY)
 	{
 		*op = DELTA_OP_NONE;
 	}
 
-	*size = patch_header[1];
+	*size = header_st.length;
 
 	return DELTA_OK;
 }

@@ -29,10 +29,11 @@
 #define BACKUP_STATUS_ADDRESS		0xFB000			//backup address to save apply status ,save it before erase
 
 /* PATCH HEADER SIZE */
-#define HEADER_SIZE 0x8
+#define HEADER_SIZE 				0x28			//"NEWP" + patch_size + source_version
 
 #define DELTA_OP_NONE				0x00
-#define DELTA_OP_TRAVERSE			0x0E
+#define DELTA_OP_START				0x0E
+#define DELTA_OP_TRAVERSE			0x0A
 #define DELTA_OP_APPLY				0x02
 
 /* PAGE SIZE */
@@ -60,6 +61,7 @@
 #define DELTA_CLEARING_ERROR							 35
 #define DELTA_NO_FLASH_FOUND							 36
 #define DELTA_PATCH_HEADER_ERROR                         37
+#define DELTA_SOURCE_HASH_ERROR                          38
 
 /* FLASH MEMORY AND POINTERS TO CURRENT LOCATION OF BUFFERS AND END OF IMAGE AREAS.
  * - "Patch" refers to the area containing the patch image.
@@ -130,7 +132,7 @@ int delta_check_and_apply(struct flash_mem *flash, struct detools_apply_patch_t 
  * representing an error, or a positive value (0<)
  * representing the patch size.
  */
-int delta_read_patch_header(struct flash_mem *flash, uint32_t *size, uint8_t *op);
+int delta_read_patch_header(uint8_t *hash_buf, uint32_t *size, uint8_t *op);
 
 int apply_write_status(struct flash_mem *flash,off_t addr);
 

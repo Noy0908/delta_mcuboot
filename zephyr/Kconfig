@@ -197,6 +197,7 @@ config BOOT_VALIDATE_SLOT0_ONCE
 	  If unsure, leave at the default value.
 
 if !SINGLE_APPLICATION_SLOT
+
 #enable support application delta updates, added by Noy 2022-10-09
 config BOOT_UPGRADE_APP_DELTA
 	bool "App delta update support"
