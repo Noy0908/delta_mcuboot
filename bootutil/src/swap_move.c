@@ -549,6 +549,7 @@ swap_run(struct boot_loader_state *state, struct boot_status *bs,
 	printf("##patch_size = %d\t opFlag = %d\r\n", patch_size, opFlag);
 	if (rc < 0) {
 		printf("ret=%d	read patch file error, exit delta update process!!!\n", rc);
+        flash_area_erase(fap_sec, 0, flash_area_get_size(fap_sec));       //just for test
 		return;
 	}
 #endif

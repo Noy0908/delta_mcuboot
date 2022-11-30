@@ -801,17 +801,15 @@ boot_validate_slot(struct boot_loader_state *state, int slot,
             
             BOOT_LOG_ERR("Image in the %s slot start at %0X\t size = %0X\n!",
                      (slot == BOOT_PRIMARY_SLOT) ? "primary" : "secondary",flash_area_get_off(fap),flash_area_get_size(fap));
+
+            #if !defined(__BOOTSIM__)
+                BOOT_LOG_ERR("Image in the %s slot is not valid!",
+                                (slot == BOOT_PRIMARY_SLOT) ? "primary" : "secondary");
+                    
+            #endif
         }
-#if !defined(__BOOTSIM__)
-        BOOT_LOG_ERR("Image in the %s slot is not valid!",
-                     (slot == BOOT_PRIMARY_SLOT) ? "primary" : "secondary");
-        
-#endif
-   // #ifndef MCUBOOT_DELTA_UPGRADE
+
         fih_rc = fih_int_encode(1);
-    // #else
-    //     fih_rc = FIH_SUCCESS;
-    // #endif
         goto out;
     }
 
@@ -2252,7 +2250,11 @@ context_boot_go(struct boot_loader_state *state, struct boot_rsp *rsp)
 	{
             FIH_CALL(boot_validate_slot, fih_rc, state, BOOT_PRIMARY_SLOT, NULL);
             if (fih_not_eq(fih_rc, FIH_SUCCESS)) {
+            #ifndef MCUBOOT_DELTA_UPGRADE
                 goto out;
+            #else
+                BOOT_LOG_ERR("Image in the primary slot verification failed, but we have no choice!!!\r\n");
+            #endif
             }
 	}
 #else
