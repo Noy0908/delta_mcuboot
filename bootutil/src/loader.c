@@ -2252,8 +2252,6 @@ context_boot_go(struct boot_loader_state *state, struct boot_rsp *rsp)
             if (fih_not_eq(fih_rc, FIH_SUCCESS)) {
             #ifndef MCUBOOT_DELTA_UPGRADE
                 goto out;
-            #else
-                BOOT_LOG_ERR("Image in the primary slot verification failed, but we have no choice!!!\r\n");
             #endif
             }
 	}
