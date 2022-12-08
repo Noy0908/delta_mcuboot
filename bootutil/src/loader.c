@@ -933,7 +933,7 @@ boot_validated_swap_type(struct boot_loader_state *state,
     fih_int fih_rc = FIH_FAILURE;
     bool upgrade_valid = false;
 
-#if defined(PM_S1_ADDRESS) || defined(CONFIG_SOC_NRF5340_CPUAPP)
+#if (defined(PM_S1_ADDRESS) || defined(CONFIG_SOC_NRF5340_CPUAPP)) && !defined(MCUBOOT_DELTA_UPGRADE)
     const struct flash_area *secondary_fa =
         BOOT_IMG_AREA(state, BOOT_SECONDARY_SLOT);
     struct image_header *hdr = (struct image_header *)secondary_fa->fa_off;
@@ -1838,7 +1838,7 @@ boot_prepare_image_for_update(struct boot_loader_state *state,
     int rc;
     fih_int fih_rc = FIH_FAILURE;
 
-    printk("Before：bs->idx=%d\t bs->op=%d\t  bs->state=%d\t bs->swap_type=%d\r\n", bs->idx,bs->op,bs->state,bs->swap_type);
+    printf("Before：bs->idx=%d\t bs->op=%d\t  bs->state=%d\t bs->swap_type=%d\r\n", bs->idx,bs->op,bs->state,bs->swap_type);
 
     /* Determine the sector layout of the image slots and scratch area. */
     rc = boot_read_sectors(state);
@@ -1881,7 +1881,7 @@ boot_prepare_image_for_update(struct boot_loader_state *state,
             BOOT_SWAP_TYPE(state) = BOOT_SWAP_TYPE_NONE;
             return;
         }
-        printk("After:bs->idx=%d\t bs->op=%d\t  bs->state=%d\t bs->swap_type=%d\r\n", bs->idx,bs->op,bs->state,bs->swap_type);
+        printf("After:bs->idx=%d\t bs->op=%d\t  bs->state=%d\t bs->swap_type=%d\r\n", bs->idx,bs->op,bs->state,bs->swap_type);
 #endif
 
 
@@ -2036,7 +2036,7 @@ boot_update_hw_rollback_protection(struct boot_loader_state *state)
 }
 
 
-fih_int get_source_hash(struct flash_area *fap,uint8_t *hash_buf)
+fih_int get_source_hash(const struct flash_area *fap,uint8_t *hash_buf)
 {
     struct image_header hdr;
     uint8_t tmpbuf[64];

@@ -22,11 +22,12 @@
 #define PRIMARY_SIZE 		FLASH_AREA_SIZE(image_0)
 #define SECONDARY_OFFSET 	FLASH_AREA_OFFSET(image_1)
 #define SECONDARY_SIZE 		FLASH_AREA_SIZE(image_1)
-#define STORAGE_OFFSET 		FLASH_AREA_OFFSET(image_1)
-#define STORAGE_SIZE 		FLASH_AREA_SIZE(image_1)
 
-#define STATUS_ADDRESS				0xFE000			//flash address to save apply status
-#define BACKUP_STATUS_ADDRESS		0xFB000			//backup address to save apply status ,save it before erase
+/* PAGE SIZE */
+#define PAGE_SIZE 0x1000
+
+#define STATUS_ADDRESS				(SECONDARY_OFFSET + SECONDARY_SIZE - 2*PAGE_SIZE)		//flash address to save apply status
+#define BACKUP_STATUS_ADDRESS		(STATUS_ADDRESS - 3*PAGE_SIZE)				//backup address to save apply status ,save it before erase
 
 /* PATCH HEADER SIZE */
 #define HEADER_SIZE 				0x28			//"NEWP" + patch_size + source_version
@@ -36,8 +37,6 @@
 #define DELTA_OP_TRAVERSE			0x0A
 #define DELTA_OP_APPLY				0x02
 
-/* PAGE SIZE */
-#define PAGE_SIZE 0x1000
 
 #define DATA_LEN 2
 #define ADDR_LEN 4

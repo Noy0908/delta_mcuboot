@@ -49,6 +49,9 @@ static int delta_init_flash_mem(struct flash_mem *flash)
 
 	image_position_adjust.count = 0;
 
+	printf("\nInit: from_current=%p to_current=%p patch_current=%p STATUS_ADDRESS=%p BACKUP_STATUS_ADDRESS=%p backup_addr=0x%X\t write_size=%d\n",
+			flash->from_current, flash->to_current, flash->patch_current,STATUS_ADDRESS,BACKUP_STATUS_ADDRESS,flash->backup_addr, flash->write_size);
+
 	return DELTA_OK;
 }
 
@@ -84,7 +87,7 @@ static int save_backup_image(void *arg_p)
 	{
 		total_size += (DATA_HEADER +image_position_adjust.size[i]);  //addr->4bytes len->2bytes				
 	}
-	printk("==== total_count=%d\t totat_size=0x%x\r\n", image_position_adjust.count,total_size);
+	printk("==== total_count=%d\t totat_size=%d\r\n", image_position_adjust.count,total_size);
 
 	if ((patch_size + HEADER_SIZE + total_size) > SECONDARY_SIZE)
 	{
@@ -208,7 +211,7 @@ static int write_new_image_to_flash(struct flash_mem *flash)
 	memcpy(flash->rest_buf,&to_flash_buf[ERASE_PAGE_SIZE], flash->write_size);
 	apply_write_status(flash,STATUS_ADDRESS);	
 #ifdef DELTA_ENABLE_LOG
-	printf("\nErase: from_current=%p\t to_current=%p\t patch_current=%p\t backup_addr=0x%X\t write_size=%d\n",
+	printf("\nErase: from_current=%p to_current=%p patch_current=%p backup_addr=0x%X\t write_size=%d\n",
 			flash->from_current, flash->to_current, flash->patch_current, flash->backup_addr, flash->write_size);
 	print_apply_patch_info(&apply_patch);
 #endif	

@@ -35,7 +35,7 @@ extern const struct device *flash_device;
 extern  uint8_t opFlag ;
 extern struct detools_apply_patch_t apply_patch;
 
-extern fih_int get_source_hash(struct flash_area *fap,uint8_t *hash_buf);
+extern fih_int get_source_hash(const struct flash_area *fap,uint8_t *hash_buf);
 #endif
 
 BOOT_LOG_MODULE_DECLARE(mcuboot);

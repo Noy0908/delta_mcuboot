@@ -3,9 +3,9 @@ import sys
 from shutil import copyfile
 from sys import exit
 
-paths = "binaries/signed_images"
-sign_patch = "binaries/patches/signed_patch.bin"
-patch_path = "binaries/patches/patch"
+paths = "../binaries/signed_images"
+sign_patch = "../binaries/patches/signed_patch.bin"
+patch_path = "../binaries/patches/patch"
 source_path = ''
 #command = "detools create_patch --compression heatshrink binaries/signed_images/source.bin binaries/signed_images/target.bin binaries/patches/patch1.bin"
 command = "detools create_patch --compression heatshrink "
@@ -105,5 +105,5 @@ def sign_patch_file(sign_path):
 
 if __name__ == "__main__":
     create_patch_file(paths)
-    sign_patch_file("scripts/signature.py")
+    sign_patch_file("signature.py")
     os.system("pause")
