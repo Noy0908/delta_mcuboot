@@ -84,13 +84,14 @@ def sign_patch_file(sign_path):
         f.write(source_hash)
     # write file contents to new file
     f.write(contents)
+    f.close()
 
     # excute signature command 
     try:
         with open(sign_path,encoding='utf-8') as file_obj:
-            text = file_obj.read()
+            text = eval(file_obj.read())
             sign_command = text.strip('\r\n') + ' ' + patch_path + ' ' + patch_path.replace("patch_from","signed_patch_from")
-            # print(sign_command)
+            print(sign_command)
             os.system(sign_command)
     except:
         print("Please check your imgtool command: [\"%s\"]!!!\r\n" %sign_command)
