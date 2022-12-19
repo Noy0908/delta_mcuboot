@@ -933,7 +933,7 @@ boot_validated_swap_type(struct boot_loader_state *state,
     fih_int fih_rc = FIH_FAILURE;
     bool upgrade_valid = false;
 
-#if (defined(PM_S1_ADDRESS) || defined(CONFIG_SOC_NRF5340_CPUAPP)) && !defined(MCUBOOT_DELTA_UPGRADE)
+#if (defined(PM_S1_ADDRESS) || defined(CONFIG_SOC_NRF5340_CPUAPP))
     const struct flash_area *secondary_fa =
         BOOT_IMG_AREA(state, BOOT_SECONDARY_SLOT);
     struct image_header *hdr = (struct image_header *)secondary_fa->fa_off;
@@ -1676,6 +1676,15 @@ boot_perform_update(struct boot_loader_state *state, struct boot_status *bs)
             BOOT_SWAP_TYPE(state) = swap_type = BOOT_SWAP_TYPE_PANIC;
         }
     }
+#ifdef MCUBOOT_DELTA_UPGRADE    
+    else if (swap_type == BOOT_SWAP_TYPE_TEST)
+    {
+        rc = swap_set_image_ok(BOOT_CURR_IMG(state));
+        if (rc != 0) {
+            BOOT_SWAP_TYPE(state) = swap_type = BOOT_SWAP_TYPE_PANIC;
+        }
+    }
+#endif       
 
 #ifdef MCUBOOT_HW_ROLLBACK_PROT
     if (swap_type == BOOT_SWAP_TYPE_PERM) {
@@ -2249,10 +2258,8 @@ context_boot_go(struct boot_loader_state *state, struct boot_rsp *rsp)
 #endif
 	{
             FIH_CALL(boot_validate_slot, fih_rc, state, BOOT_PRIMARY_SLOT, NULL);
-            if (fih_not_eq(fih_rc, FIH_SUCCESS)) {
-            #ifndef MCUBOOT_DELTA_UPGRADE
-                goto out;
-            #endif
+            if (fih_not_eq(fih_rc, FIH_SUCCESS)) {           
+                goto out;            
             }
 	}
 #else
