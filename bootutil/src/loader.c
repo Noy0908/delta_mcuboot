@@ -933,7 +933,7 @@ boot_validated_swap_type(struct boot_loader_state *state,
     fih_int fih_rc = FIH_FAILURE;
     bool upgrade_valid = false;
 
-#if (defined(PM_S1_ADDRESS) || defined(CONFIG_SOC_NRF5340_CPUAPP))
+#if (defined(PM_S1_ADDRESS) || defined(CONFIG_SOC_NRF5340_CPUAPP)) && !defined(MCUBOOT_DELTA_UPGRADE)
     const struct flash_area *secondary_fa =
         BOOT_IMG_AREA(state, BOOT_SECONDARY_SLOT);
     struct image_header *hdr = (struct image_header *)secondary_fa->fa_off;
@@ -966,6 +966,7 @@ boot_validated_swap_type(struct boot_loader_state *state,
             if (rc != 0) {
                 return BOOT_SWAP_TYPE_FAIL;
             }
+            // printf("reset_addr=%p fa_off=%p fa_size=%d\r\n", reset_addr,primary_fa->fa_off,primary_fa->fa_size);
             /* Get start and end of primary slot for current image */
             if (reset_addr < primary_fa->fa_off ||
                     reset_addr > (primary_fa->fa_off + primary_fa->fa_size)) {
