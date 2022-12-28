@@ -18,13 +18,15 @@
 #include "../detools/detools.h"
 
 /* IMAGE OFFSETS AND SIZES */
-#define PRIMARY_OFFSET 		FLASH_AREA_OFFSET(image_0)
-#define PRIMARY_SIZE 		FLASH_AREA_SIZE(image_0)
-#define SECONDARY_OFFSET 	FLASH_AREA_OFFSET(image_1)
-#define SECONDARY_SIZE 		FLASH_AREA_SIZE(image_1)
+#define PRIMARY_OFFSET 				FLASH_AREA_OFFSET(image_0)
+#define PRIMARY_SIZE 				FLASH_AREA_SIZE(image_0)
+#define SECONDARY_OFFSET 			FLASH_AREA_OFFSET(image_1)
+#define SECONDARY_SIZE 				FLASH_AREA_SIZE(image_1)
 
 /* PAGE SIZE */
-#define PAGE_SIZE 0x1000
+#define PAGE_SIZE 					0x1000
+
+#define SAVE_FLAG					0xA5A5A5A5
 
 #define STATUS_ADDRESS				(SECONDARY_OFFSET + SECONDARY_SIZE - 2*PAGE_SIZE)		//flash address to save apply status
 #define BACKUP_STATUS_ADDRESS		(STATUS_ADDRESS - 3*PAGE_SIZE)				//backup address to save apply status ,save it before erase
@@ -101,6 +103,7 @@ struct flash_mem {
 
 struct bak_flash_mem {
 	uint8_t buffer[ERASE_PAGE_SIZE];
+	uint32_t save_flag;
 	struct flash_mem flash;
 };
 

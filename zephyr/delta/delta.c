@@ -9,7 +9,7 @@
 const struct device *flash_device;
 uint32_t patch_size; 
 static uint8_t to_flash_buf[ERASE_PAGE_SIZE + MAX_WRITE_UNIT];
-//off_t status_addr = 0xfe000;
+off_t status_address = BACKUP_STATUS_ADDRESS;
 uint8_t opFlag = 0;	
 struct detools_apply_patch_t apply_patch;
 
@@ -32,7 +32,7 @@ static int delta_init_flash_mem(struct flash_mem *flash)
 		return -DELTA_NO_FLASH_FOUND;
 	}
 
-	flash->from_current = PRIMARY_OFFSET + PAGE_SIZE;
+	flash->from_current = PRIMARY_OFFSET + PAGE_SIZE*5;
 	flash->from_end = flash->from_current + PRIMARY_SIZE - PAGE_SIZE;
 
 	flash->to_current = PRIMARY_OFFSET;
@@ -50,7 +50,7 @@ static int delta_init_flash_mem(struct flash_mem *flash)
 	image_position_adjust.count = 0;
 
 	printf("\nInit: from_current=%p to_current=%p patch_current=%p STATUS_ADDRESS=%p BACKUP_STATUS_ADDRESS=%p backup_addr=0x%X\t write_size=%d\n",
-			flash->from_current, flash->to_current, flash->patch_current,STATUS_ADDRESS,BACKUP_STATUS_ADDRESS,flash->backup_addr, flash->write_size);
+			flash->from_current, flash->to_current, flash->patch_current,status_address-PAGE_SIZE*3,status_address,flash->backup_addr, flash->write_size);
 
 	return DELTA_OK;
 }
@@ -124,9 +124,9 @@ static int save_backup_image(void *arg_p)
 
 	delta_init_flash_mem(flash);
 	flash->backup_addr = magic;
-	apply_write_status(flash,STATUS_ADDRESS);
+	//apply_write_status(flash,STATUS_ADDRESS);
+	apply_write_status(flash,status_address + PAGE_SIZE*3);
 
-	//apply_backup_write_status(flash);
 	flash_erase(flash_device, BACKUP_STATUS_ADDRESS, PAGE_SIZE*3);			//clean backup information
 
 	if (flash_write(flash_device, SECONDARY_OFFSET + 0x200, &opFlag, sizeof(opFlag))) {
@@ -209,7 +209,8 @@ static int write_new_image_to_flash(struct flash_mem *flash)
 	memcpy(to_flash_buf, &to_flash_buf[ERASE_PAGE_SIZE], flash->write_size);
 
 	memcpy(flash->rest_buf,&to_flash_buf[ERASE_PAGE_SIZE], flash->write_size);
-	apply_write_status(flash,STATUS_ADDRESS);	
+	//apply_write_status(flash,STATUS_ADDRESS);	
+	apply_write_status(flash,status_address + PAGE_SIZE*3);
 #ifdef DELTA_ENABLE_LOG
 	printf("\nErase: from_current=%p to_current=%p patch_current=%p backup_addr=0x%X\t write_size=%d\n",
 			flash->from_current, flash->to_current, flash->patch_current, flash->backup_addr, flash->write_size);
@@ -628,21 +629,55 @@ int delta_read_patch_header(uint8_t *hash_buf, uint32_t *size, uint8_t *op)
 }
 
 
+void get_status_address()
+{
+	uint32_t flag = 0;
+	off_t start_address = SECONDARY_OFFSET + PAGE_SIZE;
+
+	while(0 == flash_read(flash_device, start_address, &flag, sizeof(flag))) 
+	{
+		if(flag == SAVE_FLAG)
+		{
+			start_address += PAGE_SIZE;
+		}
+	}
+	
+}
+
+
+
 int apply_backup_write_status(struct flash_mem *flash_mem)
 {
 	struct bak_flash_mem bak_flash;
 	uint8_t rest_count = flash_mem->write_size - ERASE_PAGE_SIZE;
 
+	bak_flash.save_flag = SAVE_FLAG;			//This flag is used to indicate which page has been used by the power off protection
 	bak_flash.flash = *flash_mem;
 	memcpy(bak_flash.buffer, to_flash_buf, ERASE_PAGE_SIZE);		
 	memcpy(bak_flash.flash.rest_buf, &to_flash_buf[ERASE_PAGE_SIZE], rest_count);
 	flush_patch_status(&apply_patch,&(bak_flash.flash));
-	//printk("1111111\r");
-	flash_erase(flash_device, BACKUP_STATUS_ADDRESS, PAGE_SIZE*3);
-	if (flash_write(flash_device, BACKUP_STATUS_ADDRESS, &bak_flash, sizeof(struct bak_flash_mem))) {
+
+	// if((flash_mem->patch_current - flash_mem->patch_current % PAGE_SIZE) > (SECONDARY_OFFSET + PAGE_SIZE*8))
+	// {
+	// 	status_address = flash_mem->patch_current - flash_mem->patch_current%PAGE_SIZE - PAGE_SIZE*8;
+	// }
+
+	printf("SAVE: from_current=%p to_current=%p status_address=%p\r\n",flash_mem->from_current,flash_mem->to_current,status_address);
+	
+	flash_erase(flash_device, status_address, PAGE_SIZE*3);
+	if (flash_write(flash_device, status_address, &bak_flash, sizeof(struct bak_flash_mem))) {
 		printk("magic2 write err\r");
 		return -DELTA_WRITING_ERROR;
 	}
+	// flash_erase(flash_device, BACKUP_STATUS_ADDRESS, PAGE_SIZE*3);
+	// if (flash_write(flash_device, BACKUP_STATUS_ADDRESS, &bak_flash, sizeof(struct bak_flash_mem))) {
+	// 	printk("magic2 write err\r");
+	// 	return -DELTA_WRITING_ERROR;
+	// }
+
+	// bs->idx = status_address;
+	// boot_write_status(state, bs);
+        
 #ifdef DELTA_ENABLE_LOG
 	printk("backup status save success!!!\r\n");
 #endif
@@ -652,13 +687,11 @@ int apply_backup_write_status(struct flash_mem *flash_mem)
 
 int apply_write_status(struct flash_mem *flash,off_t addr)
 {
-	//printk("1111111\r");
 	flash_erase(flash_device, addr, PAGE_SIZE);
 	if (flash_write(flash_device, addr, flash, sizeof(struct flash_mem))) {
 		printk("magic1 write err\r");
 		return -DELTA_WRITING_ERROR;
 	}
-	//printk("222222\r");
 	return DELTA_OK;
 }
 
@@ -666,13 +699,13 @@ int apply_write_status(struct flash_mem *flash,off_t addr)
 int apply_read_status(struct flash_mem *flash)
 {	
 	struct bak_flash_mem bak_flash;
-	//printf("STATUS_ADDRESS = %p\r\n",STATUS_ADDRESS);
-	if (flash_read(flash_device, STATUS_ADDRESS, flash, sizeof(struct flash_mem))) {
+	printf("READ: STATUS_ADDRESS = %p\r\n",status_address);
+	if (flash_read(flash_device, status_address+PAGE_SIZE*3, flash, sizeof(struct flash_mem))) {
 		printk("magic1 read err\r");
 		return -DELTA_WRITING_ERROR;
 	}
 
-	if (flash_read(flash_device, BACKUP_STATUS_ADDRESS, &bak_flash, sizeof(struct bak_flash_mem))) 
+	if (flash_read(flash_device, status_address, &bak_flash, sizeof(struct bak_flash_mem))) 
 	{
 			printk("magic1 read err\r");
 			return -DELTA_WRITING_ERROR;
