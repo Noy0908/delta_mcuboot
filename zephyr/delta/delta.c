@@ -32,7 +32,7 @@ static int delta_init_flash_mem(struct flash_mem *flash)
 		return -DELTA_NO_FLASH_FOUND;
 	}
 
-	flash->from_current = PRIMARY_OFFSET + PAGE_SIZE*5;
+	flash->from_current = PRIMARY_OFFSET + PAGE_SIZE*16;
 	flash->from_end = flash->from_current + PRIMARY_SIZE - PAGE_SIZE;
 
 	flash->to_current = PRIMARY_OFFSET;
@@ -124,10 +124,11 @@ static int save_backup_image(void *arg_p)
 
 	delta_init_flash_mem(flash);
 	flash->backup_addr = magic;
+	printk("backup_addr = %p\r\n", flash->backup_addr);
 	//apply_write_status(flash,STATUS_ADDRESS);
 	apply_write_status(flash,status_address + PAGE_SIZE*3);
 
-	flash_erase(flash_device, BACKUP_STATUS_ADDRESS, PAGE_SIZE*3);			//clean backup information
+	flash_erase(flash_device, status_address, PAGE_SIZE*3);			//clean backup information
 
 	if (flash_write(flash_device, SECONDARY_OFFSET + 0x200, &opFlag, sizeof(opFlag))) {
 		return -DELTA_PATCH_HEADER_ERROR;
@@ -350,7 +351,7 @@ static int apply_flash_from_read(void *arg_p,
 			fatal_err = -DELTA_READING_SOURCE_ERROR;
 			return -DELTA_READING_SOURCE_ERROR;
 		}
-	#ifdef DELTA_ENABLE_LOG	
+	#ifndef DELTA_ENABLE_LOG	
 		printk("from_backup read size: 0x%x offset: 0x%x\r", size, flash->backup_addr);
 	#endif
 		if (flash_read(flash_device, flash->backup_addr, buf_p, size)) {
@@ -361,7 +362,7 @@ static int apply_flash_from_read(void *arg_p,
 	}
 	else
 	{
-	#ifdef DELTA_ENABLE_LOG
+	#ifndef DELTA_ENABLE_LOG
 		printk("from_flash read size: 0x%x offset: 0x%x\r", size, flash->from_current);
 	#endif
 		if (flash_read(flash_device, flash->from_current, buf_p, size)) {
@@ -629,19 +630,36 @@ int delta_read_patch_header(uint8_t *hash_buf, uint32_t *size, uint8_t *op)
 }
 
 
-void get_status_address()
+off_t get_status_address(struct flash_mem *flash_mem)
 {
 	uint32_t flag = 0;
-	off_t start_address = SECONDARY_OFFSET + PAGE_SIZE;
+	off_t start_address = PRIMARY_OFFSET + PAGE_SIZE*4;
 
-	while(0 == flash_read(flash_device, start_address, &flag, sizeof(flag))) 
+	while(start_address < flash_mem->to_end)
 	{
-		if(flag == SAVE_FLAG)
+		if(0 == flash_read(flash_device, start_address, &flag, sizeof(flag))) 
 		{
-			start_address += PAGE_SIZE;
+			if(flag == SAVE_FLAG)
+			{
+				start_address += PAGE_SIZE*2;
+				flash_read(flash_device, start_address, &flag, sizeof(flag));
+				if(flag == SAVE_FLAG)
+				{
+					start_address -= PAGE_SIZE*2;
+				}
+				else
+				{
+					start_address -= PAGE_SIZE*4;
+				}
+				return start_address;
+			}
 		}
+		start_address += PAGE_SIZE;
 	}
 	
+	start_address = PRIMARY_OFFSET + PAGE_SIZE*2;
+	printf("Get status_address: %p\r\n", start_address);
+	return start_address;
 }
 
 
@@ -657,9 +675,9 @@ int apply_backup_write_status(struct flash_mem *flash_mem)
 	memcpy(bak_flash.flash.rest_buf, &to_flash_buf[ERASE_PAGE_SIZE], rest_count);
 	flush_patch_status(&apply_patch,&(bak_flash.flash));
 
-	// if((flash_mem->patch_current - flash_mem->patch_current % PAGE_SIZE) > (SECONDARY_OFFSET + PAGE_SIZE*8))
+	//if((flash_mem->patch_current - flash_mem->patch_current % PAGE_SIZE) > (SECONDARY_OFFSET + PAGE_SIZE*8))
 	// {
-	// 	status_address = flash_mem->patch_current - flash_mem->patch_current%PAGE_SIZE - PAGE_SIZE*8;
+	// 	status_address = flash_mem->to_current + PAGE_SIZE*2;
 	// }
 
 	printf("SAVE: from_current=%p to_current=%p status_address=%p\r\n",flash_mem->from_current,flash_mem->to_current,status_address);
@@ -687,6 +705,7 @@ int apply_backup_write_status(struct flash_mem *flash_mem)
 
 int apply_write_status(struct flash_mem *flash,off_t addr)
 {
+	printf("WRITE_STATUS: addr = %p\r\n", addr);
 	flash_erase(flash_device, addr, PAGE_SIZE);
 	if (flash_write(flash_device, addr, flash, sizeof(struct flash_mem))) {
 		printk("magic1 write err\r");
@@ -728,7 +747,7 @@ int apply_read_status(struct flash_mem *flash)
 			memcpy(to_flash_buf, flash->rest_buf, flash->write_size);
 		}
 	}
-#ifdef DELTA_ENABLE_LOG
+#ifndef DELTA_ENABLE_LOG
 	printf("\nApply: from_current=%p to_current=%p patch_current=%p backup_addr=0x%X write_size=%d\r" 
 		"patch_offset=%d to_offset=%d from_offset=%d chunk_size=%d last_chunk_size=%d chunk.offset=%d apply_state=%d\r"
 		"reader:state=%d value=%d offset=%d issigned=%d\r"

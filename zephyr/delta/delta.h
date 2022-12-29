@@ -28,8 +28,9 @@
 
 #define SAVE_FLAG					0xA5A5A5A5
 
-#define STATUS_ADDRESS				(SECONDARY_OFFSET + SECONDARY_SIZE - 2*PAGE_SIZE)		//flash address to save apply status
-#define BACKUP_STATUS_ADDRESS		(STATUS_ADDRESS - 3*PAGE_SIZE)				//backup address to save apply status ,save it before erase
+#define  BACKUP_STATUS_ADDRESS		(SECONDARY_OFFSET + SECONDARY_SIZE - 5*PAGE_SIZE)
+
+//#define BACKUP_STATUS_ADDRESS		(PRIMARY_OFFSET + 2*PAGE_SIZE)				//backup address to save apply status ,save it before erase
 
 /* PATCH HEADER SIZE */
 #define HEADER_SIZE 				0x28			//"NEWP" + patch_size + source_version
@@ -137,6 +138,8 @@ int delta_check_and_apply(struct flash_mem *flash, struct detools_apply_patch_t 
 int delta_read_patch_header(uint8_t *hash_buf, uint32_t *size, uint8_t *op);
 
 int apply_write_status(struct flash_mem *flash,off_t addr);
+
+off_t get_status_address(struct flash_mem *flash_mem);
 
 int apply_backup_write_status(struct flash_mem *flash_mem);
 
