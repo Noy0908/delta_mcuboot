@@ -32,7 +32,7 @@ static int delta_init_flash_mem(struct flash_mem *flash)
 		return -DELTA_NO_FLASH_FOUND;
 	}
 
-	flash->from_current = PRIMARY_OFFSET + PAGE_SIZE*16;
+	flash->from_current = PRIMARY_OFFSET + PAGE_SIZE*10;
 	flash->from_end = flash->from_current + PRIMARY_SIZE - PAGE_SIZE;
 
 	flash->to_current = PRIMARY_OFFSET;
@@ -49,8 +49,8 @@ static int delta_init_flash_mem(struct flash_mem *flash)
 
 	image_position_adjust.count = 0;
 
-	printf("\nInit: from_current=%p to_current=%p patch_current=%p STATUS_ADDRESS=%p BACKUP_STATUS_ADDRESS=%p backup_addr=0x%X\t write_size=%d\n",
-			flash->from_current, flash->to_current, flash->patch_current,status_address-PAGE_SIZE*3,status_address,flash->backup_addr, flash->write_size);
+	printf("\nInit: from_current=%p to_current=%p patch_current=%p STATUS_ADDRESS=%p backup_addr=0x%X\t write_size=%d\n",
+			flash->from_current, flash->to_current, flash->patch_current,status_address,flash->backup_addr, flash->write_size);
 
 	return DELTA_OK;
 }
@@ -351,7 +351,7 @@ static int apply_flash_from_read(void *arg_p,
 			fatal_err = -DELTA_READING_SOURCE_ERROR;
 			return -DELTA_READING_SOURCE_ERROR;
 		}
-	#ifndef DELTA_ENABLE_LOG	
+	#ifdef DELTA_ENABLE_LOG	
 		printk("from_backup read size: 0x%x offset: 0x%x\r", size, flash->backup_addr);
 	#endif
 		if (flash_read(flash_device, flash->backup_addr, buf_p, size)) {
@@ -362,7 +362,7 @@ static int apply_flash_from_read(void *arg_p,
 	}
 	else
 	{
-	#ifndef DELTA_ENABLE_LOG
+	#ifdef DELTA_ENABLE_LOG
 		printk("from_flash read size: 0x%x offset: 0x%x\r", size, flash->from_current);
 	#endif
 		if (flash_read(flash_device, flash->from_current, buf_p, size)) {
@@ -526,7 +526,7 @@ int delta_apply_init(struct flash_mem *flash,uint32_t patch_size,struct detools_
                                    patch_size,
                                    apply_flash_write,
                                    flash);
-	if(flash->patch_current > start_addr)
+	if(flash->patch_current >= start_addr)
 	{
 		//printk("Init apply reader!!!!!!!!!!!!!!!!!!!!!!!!!!!!\r\n\r\n");
 		if (flash_read(flash_device, start_addr, chunk, sizeof(chunk))) {
@@ -630,37 +630,6 @@ int delta_read_patch_header(uint8_t *hash_buf, uint32_t *size, uint8_t *op)
 }
 
 
-off_t get_status_address(struct flash_mem *flash_mem)
-{
-	uint32_t flag = 0;
-	off_t start_address = PRIMARY_OFFSET + PAGE_SIZE*4;
-
-	while(start_address < flash_mem->to_end)
-	{
-		if(0 == flash_read(flash_device, start_address, &flag, sizeof(flag))) 
-		{
-			if(flag == SAVE_FLAG)
-			{
-				start_address += PAGE_SIZE*2;
-				flash_read(flash_device, start_address, &flag, sizeof(flag));
-				if(flag == SAVE_FLAG)
-				{
-					start_address -= PAGE_SIZE*2;
-				}
-				else
-				{
-					start_address -= PAGE_SIZE*4;
-				}
-				return start_address;
-			}
-		}
-		start_address += PAGE_SIZE;
-	}
-	
-	start_address = PRIMARY_OFFSET + PAGE_SIZE*2;
-	printf("Get status_address: %p\r\n", start_address);
-	return start_address;
-}
 
 
 
@@ -680,21 +649,14 @@ int apply_backup_write_status(struct flash_mem *flash_mem)
 	// 	status_address = flash_mem->to_current + PAGE_SIZE*2;
 	// }
 
-	printf("SAVE: from_current=%p to_current=%p status_address=%p\r\n",flash_mem->from_current,flash_mem->to_current,status_address);
+	// printf("SAVE: from_current=%p to_current=%p status_address=%p\r\n",flash_mem->from_current,flash_mem->to_current,status_address);
 	
 	flash_erase(flash_device, status_address, PAGE_SIZE*3);
 	if (flash_write(flash_device, status_address, &bak_flash, sizeof(struct bak_flash_mem))) {
 		printk("magic2 write err\r");
 		return -DELTA_WRITING_ERROR;
 	}
-	// flash_erase(flash_device, BACKUP_STATUS_ADDRESS, PAGE_SIZE*3);
-	// if (flash_write(flash_device, BACKUP_STATUS_ADDRESS, &bak_flash, sizeof(struct bak_flash_mem))) {
-	// 	printk("magic2 write err\r");
-	// 	return -DELTA_WRITING_ERROR;
-	// }
-
-	// bs->idx = status_address;
-	// boot_write_status(state, bs);
+	
         
 #ifdef DELTA_ENABLE_LOG
 	printk("backup status save success!!!\r\n");
@@ -705,7 +667,6 @@ int apply_backup_write_status(struct flash_mem *flash_mem)
 
 int apply_write_status(struct flash_mem *flash,off_t addr)
 {
-	printf("WRITE_STATUS: addr = %p\r\n", addr);
 	flash_erase(flash_device, addr, PAGE_SIZE);
 	if (flash_write(flash_device, addr, flash, sizeof(struct flash_mem))) {
 		printk("magic1 write err\r");
@@ -747,8 +708,16 @@ int apply_read_status(struct flash_mem *flash)
 			memcpy(to_flash_buf, flash->rest_buf, flash->write_size);
 		}
 	}
+
+	flash->patch_offset = flash->patch_current - (SECONDARY_OFFSET + 0x200 + HEADER_SIZE) + 0x200;
+	if((flash->last_chunk_size > 0) && (flash->chunk_offset >= flash->last_chunk_size))
+	{
+		flash->patch_current +=  MIN(patch_size - flash->patch_offset, 512);
+		// flash->patch_current += 0x200;
+	}
+	
 #ifndef DELTA_ENABLE_LOG
-	printf("\nApply: from_current=%p to_current=%p patch_current=%p backup_addr=0x%X write_size=%d\r" 
+	printf("\nRead backup: from_current=%p to_current=%p patch_current=%p backup_addr=0x%X write_size=%d\r" 
 		"patch_offset=%d to_offset=%d from_offset=%d chunk_size=%d last_chunk_size=%d chunk.offset=%d apply_state=%d\r"
 		"reader:state=%d value=%d offset=%d issigned=%d\r"
 		"decoder:head_index=%d state=%d output_count=%d output_index=%d current_byte=%d bit_index=%d\r\n\n",

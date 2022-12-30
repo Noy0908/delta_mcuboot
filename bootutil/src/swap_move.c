@@ -627,7 +627,7 @@ swap_run(struct boot_loader_state *state, struct boot_status *bs,
         idx = g_last_idx;
         while (idx > 0) {
             if (idx <= (g_last_idx - bs->idx + 1)) {
-                boot_move_sector_up_pages(idx, sector_sz, 16, state, bs, fap_pri, fap_sec);
+                boot_move_sector_up_pages(idx, sector_sz, 10, state, bs, fap_pri, fap_sec);
             }
             idx--;
         }
@@ -647,8 +647,6 @@ swap_run(struct boot_loader_state *state, struct boot_status *bs,
     /** Now we start to apply patch file to create new image*/
     if(opFlag == DELTA_OP_APPLY)
     { 
-        get_status_address(&flash_pt);
-
         apply_read_status(&flash_pt); 
         
         delta_apply_init(&flash_pt,patch_size,&apply_patch);    

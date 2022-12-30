@@ -17,6 +17,9 @@
 #include <sys/reboot.h>
 #include "../detools/detools.h"
 
+
+//#define DELTA_ENABLE_LOG			1
+
 /* IMAGE OFFSETS AND SIZES */
 #define PRIMARY_OFFSET 				FLASH_AREA_OFFSET(image_0)
 #define PRIMARY_SIZE 				FLASH_AREA_SIZE(image_0)
@@ -138,8 +141,6 @@ int delta_check_and_apply(struct flash_mem *flash, struct detools_apply_patch_t 
 int delta_read_patch_header(uint8_t *hash_buf, uint32_t *size, uint8_t *op);
 
 int apply_write_status(struct flash_mem *flash,off_t addr);
-
-off_t get_status_address(struct flash_mem *flash_mem);
 
 int apply_backup_write_status(struct flash_mem *flash_mem);
 
