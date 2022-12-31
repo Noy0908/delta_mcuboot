@@ -9,7 +9,8 @@
 const struct device *flash_device;
 uint32_t patch_size; 
 static uint8_t to_flash_buf[ERASE_PAGE_SIZE + MAX_WRITE_UNIT];
-off_t status_address = 0;
+// off_t status_address = 0;
+off_t status_address = PRIMARY_OFFSET + PAGE_SIZE*4;
 uint8_t opFlag = 0;	
 struct detools_apply_patch_t apply_patch;
 
@@ -32,7 +33,7 @@ static int delta_init_flash_mem(struct flash_mem *flash)
 		return -DELTA_NO_FLASH_FOUND;
 	}
 
-	flash->from_current = PRIMARY_OFFSET + PAGE_SIZE*10;
+	flash->from_current = PRIMARY_OFFSET + PAGE_SIZE*16;
 	flash->from_end = flash->from_current + PRIMARY_SIZE - PAGE_SIZE;
 
 	flash->to_current = PRIMARY_OFFSET;
@@ -89,7 +90,7 @@ static int save_backup_image(void *arg_p)
 	}
 	printk("==== total_count=%d\t totat_size=%d\r\n", image_position_adjust.count,total_size);
 
-	if ((patch_size + HEADER_SIZE + total_size + PAGE_SIZE*5) > SECONDARY_SIZE) //5 pages to save status pages
+	if ((patch_size + HEADER_SIZE + total_size + PAGE_SIZE) > SECONDARY_SIZE) //5 pages to save status pages
 	{
 		printk("## The delta file has a big variation!");
 		return DELTA_WRITING_ERROR;
@@ -152,8 +153,10 @@ static int traverse_flash_write(void *arg_p,
 #endif
 	flash->write_size += size;
 	if (flash->write_size >= ERASE_PAGE_SIZE) {
-		flash->erased_addr =  flash->to_current + ERASE_PAGE_SIZE;
-#ifdef DELTA_ENABLE_LOG
+		off_t save_address = PRIMARY_OFFSET + ((flash->to_current - PRIMARY_OFFSET)/(PAGE_SIZE*4) + 1) * (PAGE_SIZE*4);
+		flash->erased_addr =  save_address +(PAGE_SIZE*4);
+		// flash->erased_addr =  flash->to_current + ERASE_PAGE_SIZE;
+#ifndef DELTA_ENABLE_LOG
 		printk("==== erased_addr 0x%x\r", flash->erased_addr);
 #endif
 		flash->to_current += (off_t) ERASE_PAGE_SIZE;
@@ -194,8 +197,9 @@ static int write_new_image_to_flash(struct flash_mem *flash)
 	if (flash_erase(flash_device, flash->to_current, ERASE_PAGE_SIZE)) {
 		return -DELTA_CLEARING_ERROR;
 	}
-
-	flash->erased_addr =  flash->to_current + ERASE_PAGE_SIZE;
+	off_t save_address = PRIMARY_OFFSET + ((flash->to_current - PRIMARY_OFFSET)/(PAGE_SIZE*4) + 1) * (PAGE_SIZE*4);
+	flash->erased_addr =  save_address +(PAGE_SIZE*4);
+	// flash->erased_addr =  flash->to_current + ERASE_PAGE_SIZE;
 
 	if (flash_write(flash_device, flash->to_current, to_flash_buf, ERASE_PAGE_SIZE)) {
 		printk("flash write2 err\r");
@@ -215,7 +219,7 @@ static int write_new_image_to_flash(struct flash_mem *flash)
 #ifdef DELTA_ENABLE_LOG
 	printf("\nErase: from_current=%p to_current=%p patch_current=%p backup_addr=0x%X\t write_size=%d\n",
 			flash->from_current, flash->to_current, flash->patch_current, flash->backup_addr, flash->write_size);
-	print_apply_patch_info(&apply_patch);
+	//print_apply_patch_info(&apply_patch);
 #endif	
 	return DELTA_OK;
 }
@@ -577,7 +581,6 @@ int delta_read_patch_header(uint8_t *hash_buf, uint32_t *size, uint8_t *op)
 		uint8_t hash_buf[32]
 	} header_st;
 
-	//reset_msg = 0x0U; // reset "NEWP"
 
 	if (flash_read(flash_device, SECONDARY_OFFSET + 0x200, &header_st, sizeof(header_st))) {
 		return -DELTA_PATCH_HEADER_ERROR;
@@ -625,13 +628,44 @@ int delta_read_patch_header(uint8_t *hash_buf, uint32_t *size, uint8_t *op)
 	}
 
 	*size = header_st.length;
-	status_address = SECONDARY_OFFSET + 0x200 + HEADER_SIZE + *size + PAGE_SIZE - (SECONDARY_OFFSET + 0x200 + HEADER_SIZE + *size)%PAGE_SIZE;
+	// status_address = SECONDARY_OFFSET + 0x200 + HEADER_SIZE + *size + PAGE_SIZE - (SECONDARY_OFFSET + 0x200 + HEADER_SIZE + *size)%PAGE_SIZE;
 
 	return DELTA_OK;
 }
 
 
+off_t get_status_address(void)
+{
+	uint32_t flag = 0;
+	off_t save_addr = PRIMARY_OFFSET + PRIMARY_SIZE - PAGE_SIZE;
 
+	while(save_addr >= PRIMARY_OFFSET +  PAGE_SIZE*4)
+	{
+		flash_read(flash_device, save_addr, &flag, sizeof(flag));
+		if(flag == SAVE_FLAG)
+		{
+			save_addr -= PAGE_SIZE;
+			flash_read(flash_device, save_addr, &flag, sizeof(flag));
+			if(flag == SAVE_FLAG)
+			{
+				save_addr -= PAGE_SIZE*2;
+			}
+			else
+			{
+				save_addr -= PAGE_SIZE;
+			}
+			break;
+		}
+		save_addr -= PAGE_SIZE;
+	}
+	
+	if((save_addr < PRIMARY_OFFSET +  PAGE_SIZE*4) || (save_addr == PRIMARY_OFFSET +  PAGE_SIZE*5))
+	{
+		save_addr = PRIMARY_OFFSET +  PAGE_SIZE*4;
+	}
+	printf("Get save_addr: %p\r\n",save_addr);
+	return save_addr;
+}
 
 
 int apply_backup_write_status(struct flash_mem *flash_mem)
@@ -639,28 +673,21 @@ int apply_backup_write_status(struct flash_mem *flash_mem)
 	struct bak_flash_mem bak_flash;
 	uint8_t rest_count = flash_mem->write_size - ERASE_PAGE_SIZE;
 
-	bak_flash.save_flag = SAVE_FLAG;			//This flag is used to indicate which page has been used by the power off protection
+	flash_mem->save_flag = SAVE_FLAG;			//This flag is used to indicate which page has been used by the power off protection
 	bak_flash.flash = *flash_mem;
 	memcpy(bak_flash.buffer, to_flash_buf, ERASE_PAGE_SIZE);		
 	memcpy(bak_flash.flash.rest_buf, &to_flash_buf[ERASE_PAGE_SIZE], rest_count);
 	flush_patch_status(&apply_patch,&(bak_flash.flash));
 
-	//if((flash_mem->patch_current - flash_mem->patch_current % PAGE_SIZE) > (SECONDARY_OFFSET + PAGE_SIZE*8))
-	// {
-	// 	status_address = flash_mem->to_current + PAGE_SIZE*2;
-	// }
-
-	// printf("SAVE: from_current=%p to_current=%p status_address=%p\r\n",flash_mem->from_current,flash_mem->to_current,status_address);
-	
+	status_address = PRIMARY_OFFSET + ((flash_mem->to_current - PRIMARY_OFFSET)/(PAGE_SIZE*4) + 1) * (PAGE_SIZE*4);
 	flash_erase(flash_device, status_address, PAGE_SIZE*3);
 	if (flash_write(flash_device, status_address, &bak_flash, sizeof(struct bak_flash_mem))) {
 		printk("magic2 write err\r");
 		return -DELTA_WRITING_ERROR;
 	}
-	
-        
-#ifdef DELTA_ENABLE_LOG
-	printk("backup status save success!!!\r\n");
+	      
+#ifndef DELTA_ENABLE_LOG
+	printf("SAVE: from_current=%p to_current=%p status_address=%p\r\n",flash_mem->from_current,flash_mem->to_current,status_address);
 #endif
 	return DELTA_OK;
 }
@@ -668,6 +695,7 @@ int apply_backup_write_status(struct flash_mem *flash_mem)
 
 int apply_write_status(struct flash_mem *flash,off_t addr)
 {
+	flash->save_flag = SAVE_FLAG;
 	flash_erase(flash_device, addr, PAGE_SIZE);
 	if (flash_write(flash_device, addr, flash, sizeof(struct flash_mem))) {
 		printk("magic1 write err\r");
@@ -693,7 +721,7 @@ int apply_read_status(struct flash_mem *flash)
 	}
 
 	/** last save failed, we should read backup data to restore the apply status */
-	if((flash->patch_current == 0xffffffff)	|| 
+	if((flash->patch_current == 0xffffffff)	|| (flash->save_flag != SAVE_FLAG) ||
 		((bak_flash.flash.from_current!=flash->from_current || bak_flash.flash.backup_addr!=flash->backup_addr) && (bak_flash.flash.to_current == flash->to_current)))
 	{
 		printf("Last save failed, we should read backup data to restore the apply status!!!!!!\r\n");
@@ -710,11 +738,11 @@ int apply_read_status(struct flash_mem *flash)
 		}
 	}
 
-	flash->patch_offset = flash->patch_current - (SECONDARY_OFFSET + 0x200 + HEADER_SIZE) + 0x200;
+	// flash->patch_offset = flash->patch_current - (SECONDARY_OFFSET + 0x200 + HEADER_SIZE) + 0x200;
 	if((flash->last_chunk_size > 0) && (flash->chunk_offset >= flash->last_chunk_size))
 	{
-		flash->patch_current +=  MIN(patch_size - flash->patch_offset, 512);
-		// flash->patch_current += 0x200;
+		//flash->patch_current +=  MIN(patch_size - flash->patch_offset, 512);
+		flash->patch_current +=  512;
 	}
 	
 #ifndef DELTA_ENABLE_LOG

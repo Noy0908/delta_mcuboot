@@ -770,6 +770,8 @@ size_t detools_apply_patch_get_to_offset(struct detools_apply_patch_t *self_p)
     return (self_p->to_offset);
 }
 
+
+
 int detools_apply_patch_process(struct detools_apply_patch_t *self_p,
                                 const uint8_t *patch_p,
                                 size_t size)
@@ -843,13 +845,13 @@ int apply_patch_process(struct detools_apply_patch_t *apply_patch_p,
     while ((patch_offset < patch_size) && (res == 0)) {
         chunk_size = MIN(patch_size - patch_offset, 512);
         res = patch_read(arg_p, &chunk[0], chunk_size);
-
         if (res == 0) {
             res = detools_apply_patch_process(apply_patch_p,
                                               &chunk[0],
-                                              chunk_size);
+                                              chunk_size);         
             patch_offset += chunk_size;
             increase_patch_offset(arg_p, chunk_size);
+        
             printf("------------patch_offset=%d\t patch_size=%d\t progress = %d%%\n", patch_offset,patch_size,patch_offset*100/patch_size);
         } else {
             res = -DETOOLS_IO_FAILED;

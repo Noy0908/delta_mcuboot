@@ -33,7 +33,6 @@
 
 #define  BACKUP_STATUS_ADDRESS		(SECONDARY_OFFSET + SECONDARY_SIZE - 5*PAGE_SIZE)
 
-//#define BACKUP_STATUS_ADDRESS		(PRIMARY_OFFSET + 2*PAGE_SIZE)				//backup address to save apply status ,save it before erase
 
 /* PATCH HEADER SIZE */
 #define HEADER_SIZE 				0x28			//"NEWP" + patch_size + source_version
@@ -75,6 +74,7 @@
  */
 struct flash_mem {
 	/**Below are the apply patch status information*/
+	uint32_t save_flag;
 	size_t patch_offset;
     size_t to_offset;
     int from_offset;
@@ -107,7 +107,7 @@ struct flash_mem {
 
 struct bak_flash_mem {
 	uint8_t buffer[ERASE_PAGE_SIZE];
-	uint32_t save_flag;
+	// uint32_t save_flag;
 	struct flash_mem flash;
 };
 
@@ -141,6 +141,8 @@ int delta_check_and_apply(struct flash_mem *flash, struct detools_apply_patch_t 
 int delta_read_patch_header(uint8_t *hash_buf, uint32_t *size, uint8_t *op);
 
 int apply_write_status(struct flash_mem *flash,off_t addr);
+
+off_t get_status_address(void);
 
 int apply_backup_write_status(struct flash_mem *flash_mem);
 

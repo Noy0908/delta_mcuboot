@@ -33,6 +33,7 @@
 extern uint32_t patch_size; 
 extern const struct device *flash_device;
 extern  uint8_t opFlag ;
+extern off_t status_address;
 extern struct detools_apply_patch_t apply_patch;
 
 extern fih_int get_source_hash(const struct flash_area *fap,uint8_t *hash_buf);
@@ -627,7 +628,7 @@ swap_run(struct boot_loader_state *state, struct boot_status *bs,
         idx = g_last_idx;
         while (idx > 0) {
             if (idx <= (g_last_idx - bs->idx + 1)) {
-                boot_move_sector_up_pages(idx, sector_sz, 10, state, bs, fap_pri, fap_sec);
+                boot_move_sector_up_pages(idx, sector_sz, 16, state, bs, fap_pri, fap_sec);
             }
             idx--;
         }
@@ -647,6 +648,7 @@ swap_run(struct boot_loader_state *state, struct boot_status *bs,
     /** Now we start to apply patch file to create new image*/
     if(opFlag == DELTA_OP_APPLY)
     { 
+        status_address = get_status_address();
         apply_read_status(&flash_pt); 
         
         delta_apply_init(&flash_pt,patch_size,&apply_patch);    
