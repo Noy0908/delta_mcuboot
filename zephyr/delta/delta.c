@@ -9,7 +9,7 @@
 const struct device *flash_device;
 uint32_t patch_size; 
 static uint8_t to_flash_buf[ERASE_PAGE_SIZE + MAX_WRITE_UNIT];
-off_t status_address = BACKUP_STATUS_ADDRESS;
+off_t status_address = 0;
 uint8_t opFlag = 0;	
 struct detools_apply_patch_t apply_patch;
 
@@ -41,7 +41,7 @@ static int delta_init_flash_mem(struct flash_mem *flash)
 	flash->erased_addr = PRIMARY_OFFSET;
 
 	flash->patch_current = SECONDARY_OFFSET + 0x200 + HEADER_SIZE;
-	flash->patch_end = flash->patch_current + SECONDARY_SIZE - HEADER_SIZE - 0x200 - PAGE_SIZE*5;
+	flash->patch_end = flash->patch_current + SECONDARY_SIZE - HEADER_SIZE - 0x200 - PAGE_SIZE;
 
 	flash->write_size = 0;
 
@@ -89,7 +89,7 @@ static int save_backup_image(void *arg_p)
 	}
 	printk("==== total_count=%d\t totat_size=%d\r\n", image_position_adjust.count,total_size);
 
-	if ((patch_size + HEADER_SIZE + total_size) > SECONDARY_SIZE)
+	if ((patch_size + HEADER_SIZE + total_size + PAGE_SIZE*5) > SECONDARY_SIZE) //5 pages to save status pages
 	{
 		printk("## The delta file has a big variation!");
 		return DELTA_WRITING_ERROR;
@@ -625,6 +625,7 @@ int delta_read_patch_header(uint8_t *hash_buf, uint32_t *size, uint8_t *op)
 	}
 
 	*size = header_st.length;
+	status_address = SECONDARY_OFFSET + 0x200 + HEADER_SIZE + *size + PAGE_SIZE - (SECONDARY_OFFSET + 0x200 + HEADER_SIZE + *size)%PAGE_SIZE;
 
 	return DELTA_OK;
 }

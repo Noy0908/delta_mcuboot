@@ -18,7 +18,7 @@
 #include "../detools/detools.h"
 
 
-//#define DELTA_ENABLE_LOG			1
+// #define DELTA_ENABLE_LOG			1
 
 /* IMAGE OFFSETS AND SIZES */
 #define PRIMARY_OFFSET 				FLASH_AREA_OFFSET(image_0)
