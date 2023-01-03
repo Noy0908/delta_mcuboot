@@ -843,7 +843,6 @@ int apply_patch_process(struct detools_apply_patch_t *apply_patch_p,
     while ((patch_offset < patch_size) && (res == 0)) {
         chunk_size = MIN(patch_size - patch_offset, 512);
         res = patch_read(arg_p, &chunk[0], chunk_size);
-
         if (res == 0) {
             res = detools_apply_patch_process(apply_patch_p,
                                               &chunk[0],

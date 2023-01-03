@@ -212,10 +212,10 @@ static int write_new_image_to_flash(struct flash_mem *flash)
 	memcpy(flash->rest_buf,&to_flash_buf[ERASE_PAGE_SIZE], flash->write_size);
 	//apply_write_status(flash,STATUS_ADDRESS);	
 	apply_write_status(flash,status_address + PAGE_SIZE*3);
-#ifdef DELTA_ENABLE_LOG
+#ifndef DELTA_ENABLE_LOG
 	printf("\nErase: from_current=%p to_current=%p patch_current=%p backup_addr=0x%X\t write_size=%d\n",
 			flash->from_current, flash->to_current, flash->patch_current, flash->backup_addr, flash->write_size);
-	print_apply_patch_info(&apply_patch);
+	//  print_apply_patch_info(&apply_patch);
 #endif	
 	return DELTA_OK;
 }
@@ -386,7 +386,7 @@ static int delta_flash_patch_read(void *arg_p,
 	struct flash_mem *flash;
 
 	flash = (struct flash_mem *)arg_p;
-#ifdef DELTA_ENABLE_LOG
+#ifndef DELTA_ENABLE_LOG
 	printk("patch_flash read size 0x%x from %p\r\n\n", size,flash->patch_current);
 #endif
 	if (!flash) {
@@ -659,8 +659,8 @@ int apply_backup_write_status(struct flash_mem *flash_mem)
 	}
 	
         
-#ifdef DELTA_ENABLE_LOG
-	printk("backup status save success!!!\r\n");
+#ifndef DELTA_ENABLE_LOG
+	printf("SAVE Backup: from_current=%p to_current=%p patch_current=%p\r\n",flash_mem->from_current,flash_mem->to_current,flash_mem->patch_current);
 #endif
 	return DELTA_OK;
 }
@@ -710,15 +710,11 @@ int apply_read_status(struct flash_mem *flash)
 		}
 	}
 
-	flash->patch_offset = flash->patch_current - (SECONDARY_OFFSET + 0x200 + HEADER_SIZE) + 0x200;
-	if((flash->last_chunk_size > 0) && (flash->chunk_offset >= flash->last_chunk_size))
-	{
-		flash->patch_current +=  MIN(patch_size - flash->patch_offset, 512);
-		// flash->patch_current += 0x200;
-	}
+	// flash->patch_offset = flash->patch_current - (SECONDARY_OFFSET + 0x200 + HEADER_SIZE) + 0x200;
+	
 	
 #ifndef DELTA_ENABLE_LOG
-	printf("\nRead backup: from_current=%p to_current=%p patch_current=%p backup_addr=0x%X write_size=%d\r" 
+	printf("\nRead status: from_current=%p to_current=%p patch_current=%p backup_addr=0x%X write_size=%d\r" 
 		"patch_offset=%d to_offset=%d from_offset=%d chunk_size=%d last_chunk_size=%d chunk.offset=%d apply_state=%d\r"
 		"reader:state=%d value=%d offset=%d issigned=%d\r"
 		"decoder:head_index=%d state=%d output_count=%d output_index=%d current_byte=%d bit_index=%d\r\n\n",
@@ -729,6 +725,15 @@ int apply_read_status(struct flash_mem *flash)
 	flash->compression.heatshrink.decoder.output_count,flash->compression.heatshrink.decoder.output_index,
 	flash->compression.heatshrink.decoder.current_byte,flash->compression.heatshrink.decoder.bit_index);
 #endif
+
+	if((flash->last_chunk_size > 0) && (flash->chunk_offset >= flash->last_chunk_size))
+	{
+		// flash->patch_current +=  MIN(patch_size - flash->patch_offset, 512);
+		flash->patch_current += 0x200;
+		flash->last_chunk_size = 0;
+		flash->chunk_offset = 0;
+	}
+
 	return DELTA_OK;
 }
 
