@@ -823,6 +823,7 @@ int detools_apply_patch_finalize(struct detools_apply_patch_t *self_p)
 /*
  * Callback functionality.
  */
+extern  uint8_t opFlag;
 int apply_patch_process(struct detools_apply_patch_t *apply_patch_p,
                              detools_read_t patch_read,
                              size_t patch_size,
@@ -849,8 +850,12 @@ int apply_patch_process(struct detools_apply_patch_t *apply_patch_p,
                                               chunk_size);         
             patch_offset += chunk_size;
             increase_patch_offset(arg_p, chunk_size);
-        
-            printf("------------patch_offset=%d\t patch_size=%d\t progress = %d%%\n", patch_offset,patch_size,patch_offset*100/patch_size);
+         
+            if(opFlag == DELTA_OP_APPLY)
+            {
+                 printf("------------patch_offset=%d\t patch_size=%d\t progress = %d%%\n", patch_offset,patch_size,patch_offset*100/patch_size);
+            }
+         
         } else {
             res = -DETOOLS_IO_FAILED;
         }
