@@ -33,7 +33,7 @@ static int delta_init_flash_mem(struct flash_mem *flash)
 		return -DELTA_NO_FLASH_FOUND;
 	}
 
-	flash->from_current = PRIMARY_OFFSET + PAGE_SIZE*16;
+	flash->from_current = PRIMARY_OFFSET + PAGE_SIZE*19;
 	flash->from_end = flash->from_current + PRIMARY_SIZE - PAGE_SIZE;
 
 	flash->to_current = PRIMARY_OFFSET;
@@ -153,10 +153,10 @@ static int traverse_flash_write(void *arg_p,
 #endif
 	flash->write_size += size;
 	if (flash->write_size >= ERASE_PAGE_SIZE) {
-		off_t save_address = PRIMARY_OFFSET + ((flash->to_current - PRIMARY_OFFSET)/(PAGE_SIZE*4) + 1) * (PAGE_SIZE*4);
+		off_t save_address = PRIMARY_OFFSET + ((flash->to_current - PRIMARY_OFFSET)/(PAGE_SIZE*4) + 2) * (PAGE_SIZE*4);
 		flash->erased_addr =  save_address +(PAGE_SIZE*4);
 		// flash->erased_addr =  flash->to_current + ERASE_PAGE_SIZE;
-#ifndef DELTA_ENABLE_LOG
+#ifdef DELTA_ENABLE_LOG
 		printk("==== erased_addr 0x%x\r", flash->erased_addr);
 #endif
 		flash->to_current += (off_t) ERASE_PAGE_SIZE;
@@ -197,9 +197,8 @@ static int write_new_image_to_flash(struct flash_mem *flash)
 	if (flash_erase(flash_device, flash->to_current, ERASE_PAGE_SIZE)) {
 		return -DELTA_CLEARING_ERROR;
 	}
-	off_t save_address = PRIMARY_OFFSET + ((flash->to_current - PRIMARY_OFFSET)/(PAGE_SIZE*4) + 1) * (PAGE_SIZE*4);
+	off_t save_address = PRIMARY_OFFSET + ((flash->to_current - PRIMARY_OFFSET)/(PAGE_SIZE*4) + 2) * (PAGE_SIZE*4);
 	flash->erased_addr =  save_address +(PAGE_SIZE*4);
-	// flash->erased_addr =  flash->to_current + ERASE_PAGE_SIZE;
 
 	if (flash_write(flash_device, flash->to_current, to_flash_buf, ERASE_PAGE_SIZE)) {
 		printk("flash write2 err\r");
@@ -216,7 +215,7 @@ static int write_new_image_to_flash(struct flash_mem *flash)
 	memcpy(flash->rest_buf,&to_flash_buf[ERASE_PAGE_SIZE], flash->write_size);
 	//apply_write_status(flash,STATUS_ADDRESS);	
 	apply_write_status(flash,status_address + PAGE_SIZE*3);
-#ifdef DELTA_ENABLE_LOG
+#ifndef DELTA_ENABLE_LOG
 	printf("\nErase: from_current=%p to_current=%p patch_current=%p backup_addr=0x%X\t write_size=%d\n",
 			flash->from_current, flash->to_current, flash->patch_current, flash->backup_addr, flash->write_size);
 	//print_apply_patch_info(&apply_patch);
@@ -239,6 +238,9 @@ static int apply_flash_write(void *arg_p,
 		return -DELTA_WRITING_ERROR;
 	}
 
+#ifdef DELTA_ENABLE_LOG
+	printk("to_flash write size 0x%x to %p\r\n\n", size,flash->to_current + flash->write_size);
+#endif
 	memcpy(to_flash_buf + flash->write_size, buf_p, size);  //put the TO content to a temp buffer first
 	flash->write_size += size;
 	
@@ -644,6 +646,7 @@ off_t get_status_address(void)
 		flash_read(flash_device, save_addr, &flag, sizeof(flag));
 		if(flag == SAVE_FLAG)
 		{
+			flag = 0;
 			save_addr -= PAGE_SIZE;
 			flash_read(flash_device, save_addr, &flag, sizeof(flag));
 			if(flag == SAVE_FLAG)
@@ -687,7 +690,8 @@ int apply_backup_write_status(struct flash_mem *flash_mem)
 	}
 	      
 #ifndef DELTA_ENABLE_LOG
-	printf("SAVE: from_current=%p to_current=%p status_address=%p\r\n",flash_mem->from_current,flash_mem->to_current,status_address);
+	printf("Save backup: from_current=%p to_current=%p patch_current=%p status_address=%p\r\n",
+			flash_mem->from_current,flash_mem->to_current,flash_mem->patch_current,status_address);
 #endif
 	return DELTA_OK;
 }
@@ -709,15 +713,23 @@ int apply_read_status(struct flash_mem *flash)
 {	
 	struct bak_flash_mem bak_flash;
 	printf("READ: STATUS_ADDRESS = %p\r\n",status_address);
-	if (flash_read(flash_device, status_address+PAGE_SIZE*3, flash, sizeof(struct flash_mem))) {
-		printk("magic1 read err\r");
-		return -DELTA_WRITING_ERROR;
-	}
+	
 
 	if (flash_read(flash_device, status_address, &bak_flash, sizeof(struct bak_flash_mem))) 
 	{
 			printk("magic1 read err\r");
 			return -DELTA_WRITING_ERROR;
+	}
+	// /** backup has been erased and only write a SAVE_FLAG, so we have to read the last status saved after new image been written */
+	if((bak_flash.flash.save_flag == SAVE_FLAG) && (bak_flash.flash.backup_addr == 0xffffffff))
+	{
+		status_address -= PAGE_SIZE*4;
+		printf("FIXED STATUS_ADDRESS = %p\r\n",status_address);
+	}
+
+	if (flash_read(flash_device, status_address+PAGE_SIZE*3, flash, sizeof(struct flash_mem))) {
+		printk("magic1 read err\r");
+		return -DELTA_WRITING_ERROR;
 	}
 
 	/** last save failed, we should read backup data to restore the apply status */
@@ -726,9 +738,16 @@ int apply_read_status(struct flash_mem *flash)
 	{
 		printf("Last save failed, we should read backup data to restore the apply status!!!!!!\r\n");
 		
-		*flash = bak_flash.flash;		
-		memcpy(to_flash_buf,bak_flash.buffer,ERASE_PAGE_SIZE);
-		memcpy(&to_flash_buf[ERASE_PAGE_SIZE],bak_flash.flash.rest_buf, MAX_WRITE_UNIT);
+		*flash = bak_flash.flash;	
+		if(flash->write_size >= ERASE_PAGE_SIZE)
+		{
+			memcpy(to_flash_buf,bak_flash.buffer,ERASE_PAGE_SIZE);
+			memcpy(&to_flash_buf[ERASE_PAGE_SIZE],bak_flash.flash.rest_buf, MAX_WRITE_UNIT);
+		}	
+		else if(flash->write_size <= MAX_WRITE_UNIT)	/** backup has been erased, so we have to read the last status saved after new image been written */
+		{
+			memcpy(to_flash_buf, flash->rest_buf, flash->write_size);
+		}	
 	}
 	else
 	{
@@ -737,16 +756,9 @@ int apply_read_status(struct flash_mem *flash)
 			memcpy(to_flash_buf, flash->rest_buf, flash->write_size);
 		}
 	}
-
-	// flash->patch_offset = flash->patch_current - (SECONDARY_OFFSET + 0x200 + HEADER_SIZE) + 0x200;
-	if((flash->last_chunk_size > 0) && (flash->chunk_offset >= flash->last_chunk_size))
-	{
-		//flash->patch_current +=  MIN(patch_size - flash->patch_offset, 512);
-		flash->patch_current +=  512;
-	}
 	
 #ifndef DELTA_ENABLE_LOG
-	printf("\nRead backup: from_current=%p to_current=%p patch_current=%p backup_addr=0x%X write_size=%d\r" 
+	printf("\nRead status: from_current=%p to_current=%p patch_current=%p backup_addr=0x%X write_size=%d\r" 
 		"patch_offset=%d to_offset=%d from_offset=%d chunk_size=%d last_chunk_size=%d chunk.offset=%d apply_state=%d\r"
 		"reader:state=%d value=%d offset=%d issigned=%d\r"
 		"decoder:head_index=%d state=%d output_count=%d output_index=%d current_byte=%d bit_index=%d\r\n\n",
@@ -757,6 +769,14 @@ int apply_read_status(struct flash_mem *flash)
 	flash->compression.heatshrink.decoder.output_count,flash->compression.heatshrink.decoder.output_index,
 	flash->compression.heatshrink.decoder.current_byte,flash->compression.heatshrink.decoder.bit_index);
 #endif
+
+	if((flash->last_chunk_size > 0) && (flash->chunk_offset >= flash->last_chunk_size))
+	{
+		flash->patch_current += 0x200;
+		flash->last_chunk_size = 0;
+		flash->chunk_offset = 0;
+	}
+
 	return DELTA_OK;
 }
 

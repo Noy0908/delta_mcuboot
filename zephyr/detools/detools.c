@@ -590,9 +590,7 @@ static int process_adjustment(struct detools_apply_patch_t *self_p)
 static int apply_patch_process_once(struct detools_apply_patch_t *self_p)
 {
     int res;
-#ifdef DELTA_ENABLE_LOG			
-    printk("apply_patch_process_once, state = %d chunk: size=%d offset=%d\r",self_p->state,self_p->chunk.size,self_p->chunk.offset);
-#endif
+
     switch (self_p->state) {
 
     case detools_apply_patch_state_init_t:
